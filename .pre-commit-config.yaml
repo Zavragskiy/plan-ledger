@@ -1,0 +1,12 @@
+# Гейт плана: Done-задача без подтверждённой приёмки блокирует коммит.
+default_install_hook_types: [pre-commit]
+repos:
+  - repo: local
+    hooks:
+      - id: plan-check
+        name: Plan ledger consistency
+        entry: poetry run plan-check
+        language: system
+        files: ^(backlog/|dodo\.py|planlib/)
+        pass_filenames: false
+        stages: [pre-commit]

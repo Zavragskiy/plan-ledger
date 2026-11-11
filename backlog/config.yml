@@ -1,0 +1,17 @@
+projectName: plan-pilot
+statuses:
+- To Do
+- In Progress
+- Done
+defaultStatus: To Do
+dateFormat: yyyy-mm-dd
+includeDatetimeInDates: true
+defaultPort: 6420
+autoOpenBrowser: true
+remoteOperations: false
+autoCommit: false
+bypassGitHooks: false
+checkActiveBranches: false
+activeBranchDays: 30
+prefixes:
+  task: task

@@ -1,0 +1,45 @@
+[project]
+name = "plan-ledger"
+version = "0.1.0"
+description = "Детерминированный учёт планов на несколько сессий: markdown-задачи, приёмка doit, гейт без внешнего трекера."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Zavragskiy" }]
+license = { text = "MIT" }
+keywords = ["planning", "backlog", "doit", "agents", "sdd"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+]
+dependencies = [
+    "pyyaml>=6.0.1",
+    "doit>=0.37.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+plan-task = "planlib.cli.task:main"
+plan-status = "planlib.cli.status:main"
+plan-check = "planlib.cli.gate:main"
+plan-import = "planlib.cli.importer:main"
+plan-scrape = "planlib.cli.scraper:main"
+plan-mcp-probe = "planlib.cli.mcp_probe:main"
+
+[tool.poetry]
+packages = [{ include = "planlib" }]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[build-system]
+requires = ["poetry-core>=2.0"]
+build-backend = "poetry.core.masonry.api"

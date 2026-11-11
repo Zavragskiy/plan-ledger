@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.doit.db*
+.pytest_cache/
+dist/
+*.egg-info/
+
+# Локальные копии реальных планов: не публикуются
+examples/local/
