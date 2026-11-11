@@ -1,6 +1,6 @@
 [project]
 name = "plan-ledger"
-version = "0.1.0"
+version = "0.2.0"
 description = "Детерминированный учёт планов на несколько сессий: markdown-задачи, приёмка doit, гейт без внешнего трекера."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,6 +17,7 @@ classifiers = [
 dependencies = [
     "pyyaml>=6.0.1",
     "doit>=0.37.0",
+    "tomli>=2.0; python_version<'3.11'",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +27,7 @@ dev = ["pytest>=8.0"]
 plan-task = "planlib.cli.task:main"
 plan-status = "planlib.cli.status:main"
 plan-check = "planlib.cli.gate:main"
+plan-init = "planlib.cli.init:main"
 plan-import = "planlib.cli.importer:main"
 plan-scrape = "planlib.cli.scraper:main"
 plan-mcp-probe = "planlib.cli.mcp_probe:main"

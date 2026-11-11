@@ -1,0 +1,6 @@
+[plan-ledger]
+root = "."
+state = "."
+tasks = "backlog/tasks"
+dodo = "dodo.py"
+db = ".doit.db"

@@ -1,4 +1,4 @@
-"""Совместимость импорта: задача, загрузка, готовность (реализация в planlib.model)."""
+"""Совместимость импорта: модель задачи и её загрузка (реализация в planlib.model)."""
 
 from .model import (
     STATUSES,
@@ -8,11 +8,9 @@ from .model import (
     load_tasks,
     next_id,
     parse,
-    project_root,
     ready,
     save,
     slugify,
-    tasks_dir,
 )
 
 __all__ = [
@@ -23,9 +21,7 @@ __all__ = [
     "load_tasks",
     "next_id",
     "parse",
-    "project_root",
     "ready",
     "save",
     "slugify",
-    "tasks_dir",
 ]

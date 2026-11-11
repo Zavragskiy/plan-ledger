@@ -1,4 +1,6 @@
 # Гейт плана: Done-задача без подтверждённой приёмки блокирует коммит.
+# Раскладка берётся из plan-ledger.toml (или [tool.plan-ledger] в pyproject.toml),
+# поэтому хук не зависит от того, где лежат backlog/ и dodo.py.
 default_install_hook_types: [pre-commit]
 repos:
   - repo: local
@@ -7,6 +9,6 @@ repos:
         name: Plan ledger consistency
         entry: poetry run plan-check
         language: system
-        files: ^(backlog/|dodo\.py|planlib/)
+        always_run: true
         pass_filenames: false
         stages: [pre-commit]

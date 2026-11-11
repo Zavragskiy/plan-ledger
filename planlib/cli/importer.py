@@ -14,6 +14,7 @@ import pathlib
 import re
 from dataclasses import dataclass, field
 
+from planlib.config import LayoutError, layout_arguments_parent, layout_from_args
 from planlib.console import enable_utf8
 
 PHASE = re.compile(r"^(#{2,3})[ \t]+Phase[ \t]+(\d+)[ \t]*[:—–-][ \t]*(.+?)[ \t]*$", re.M)
@@ -178,11 +179,11 @@ def description_for(item: Imported) -> str:
     return "\n".join(lines)
 
 
-def write_task(project: pathlib.Path, item: Imported) -> str:
+def write_task(tasks: pathlib.Path, item: Imported) -> str:
     from planlib import model
 
     task = model.create(
-        project,
+        tasks,
         title=item.title,
         description=description_for(item),
         status=item.status,
@@ -195,21 +196,27 @@ def write_task(project: pathlib.Path, item: Imported) -> str:
     return task.id
 
 
-def link_dependencies(project: pathlib.Path, task_id: str, dependencies: list[str]) -> None:
+def link_dependencies(tasks: pathlib.Path, task_id: str, dependencies: list[str]) -> None:
     from planlib import model
 
-    task = model.find(project, task_id)
+    task = model.find(tasks, task_id)
     task.dependencies = dependencies
-    model.save(task, project)
+    model.save(task, tasks)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, parents=[layout_arguments_parent()])
     parser.add_argument("source", type=pathlib.Path, help="путь к roadmap или numbered-плану")
-    parser.add_argument("--project", type=pathlib.Path, required=True, help="каталог backlog-проекта")
     parser.add_argument("--apply", action="store_true", help="создать задачи (иначе dry-run)")
     enable_utf8()
     args = parser.parse_args(argv)
+
+    try:
+        layout = layout_from_args(args)
+    except LayoutError as error:
+        print(f"ошибка конфига: {error}")
+        return 3
+    tasks = layout.tasks
 
     fmt, items = parse(args.source)
     print(f"формат: {fmt}; найдено единиц: {len(items)}")
@@ -221,11 +228,11 @@ def main(argv: list[str] | None = None) -> int:
 
     created: dict[str, str] = {}
     for item in items:
-        created[item.key] = write_task(args.project, item)
+        created[item.key] = write_task(tasks, item)
     for item in items:
         dependencies = [created[dep] for dep in item.deps if dep in created]
         if dependencies:
-            link_dependencies(args.project, created[item.key], dependencies)
+            link_dependencies(tasks, created[item.key], dependencies)
     print(f"\nсоздано задач: {len(created)}")
     return 0
 

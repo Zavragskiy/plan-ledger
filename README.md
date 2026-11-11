@@ -7,97 +7,114 @@ tasks are Markdown files with YAML frontmatter, and "done" is proven by an accep
 a claim. A gate fails when a `Done` task's files changed after its acceptance.
 
 ```
-task file  ─┐
-            ├─ plan-status   → what exists, what is ready, what is next
-doit gate  ─┘   plan-check   → is every "Done" actually proven?
-                plan-task    → create / edit, with compare-and-set status changes
+plan-ledger.toml ─┐
+task files      ─┼─ plan-status   → statuses, readiness, next task
+doit acceptance ─┘   plan-check    → is every "Done" actually proven?
+                     plan-task     → create / edit, with compare-and-set status changes
 ```
-
-## Why
-
-Long-running refactors rarely fit one chat. Prose plans drift: nobody knows which phase is really
-finished, and two sessions happily edit the same state. `plan-ledger` keeps machine state in files
-you already review — `git diff` shows a status change, an acceptance criterion tick, a note — and
-derives "done" from the acceptance command, not from an agent's opinion.
-
-## How it works
-
-- **State** lives in `backlog/tasks/*.md`: `id`, `title`, `status` (`To Do` / `In Progress` /
-  `Blocked` / `Done`), `labels` (`shard:<name>` binds a task to an acceptance job), `dependencies`,
-  `priority`, `owner`, acceptance criteria, notes.
-- **Evidence** lives in `doit`: each shard is a task with `file_dep` and a command (tests, linter,
-  build). `.doit.db` records the last successful run.
-- **Gate**: `plan-check` reports `ok` / `open` / `unverified` / `stale`. `stale` = `Done` task whose
-  acceptance is `run` again, i.e. the files moved after the proof. Exit 1 blocks the commit.
-- **Parallel sessions**: `plan-task set <id> --if-status "To Do"` is compare-and-set — a second
-  session that lost the race gets an error instead of a silent overwrite.
 
 ## Install
 
 ```bash
 poetry add --editable /path/to/plan-ledger   # development
 # or
-poetry build && poetry add dist/plan_ledger-0.1.0-py3-none-any.whl
+poetry build && poetry add dist/plan_ledger-0.2.0-py3-none-any.whl
 ```
 
-Python `>=3.10`; dependencies `pyyaml` and `doit`.
+Python `>=3.10`; dependencies `pyyaml`, `doit`, and `tomli` on 3.10.
 
 The tracker format is compatible with [Backlog.md](https://github.com/MrLesk/Backlog.md) files:
 existing `backlog/tasks/*.md` are read as-is and unknown sections (`Implementation Notes`,
-`Definition of Done`) survive an edit. `backlog-md-py` is **not** a dependency; install it separately
-only if you want a human kanban/TUI over the same files.
+`Definition of Done`) survive an edit. `backlog-md-py` is **not** a dependency.
+
+## Layouts
+
+`plan-init` scaffolds one of these; everything is driven by config, so commands never need
+`--project`.
+
+| Layout | Config | Notes |
+|---|---|---|
+| root | `state = "."` | `backlog/tasks`, `.doit.db`, `dodo.py` in the repo root |
+| state dir | `state = ".planlib"` | tasks and DB in `.planlib/`, `dodo.py` in the root |
+| dodo in state | `state = ".planlib"`, `dodo = ".planlib/dodo.py"` | relative `file_dep` still resolve: we pass `-d <root>` |
+
+Config is looked up upward from the current directory: `plan-ledger.toml` first, then
+`pyproject.toml` with `[tool.plan-ledger]`. Paths are relative to the config's directory.
+
+```toml
+# plan-ledger.toml
+[plan-ledger]
+root  = "."            # code root: dodo.py and file_dep
+state = ".planlib"     # tasks and doit database
+tasks = "backlog/tasks"
+dodo  = "dodo.py"
+db    = ".doit.db"
+```
+
+`--project` (state), `--root` (code root) and `--config` override the config; flags are accepted
+before or after a subcommand.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
+| `plan-init [--state .planlib] [--config pyproject] [--dry-run]` | scaffold state, config, `dodo.py`, `.gitignore` |
 | `plan-task list [--status S] [--json]` | list tasks |
 | `plan-task new TITLE [-d DESC] [--ac …] [-l shard:sN] [--dep ID]` | create a task |
-| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--check-ac N]` | edit, with CAS |
-| `plan-task show ID [--json]` | details |
-| `plan-status [--project PATH] [--json]` | statuses, readiness, acceptance, next task |
-| `plan-check [--project PATH] [--json] [--strict]` | gate |
-| `plan-import SOURCE --project PATH [--apply]` | import `## Phase N` roadmaps and numbered task files |
-| `plan-scrape [--projects DIR] [--out DIR]` | copy local plans into `examples/local/` |
+| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--check-ac N]` | edit, with compare-and-set |
+| `plan-status [--json]` | statuses, readiness, acceptance, next task |
+| `plan-check [--json] [--strict] [--allow-empty]` | gate |
+| `plan-import SOURCE [--apply]` | import `## Phase N` roadmaps and numbered task files |
+| `plan-scrape [--projects DIR] [--out DIR]` | copy local plans into `examples/local/` (gitignored) |
+
+Exit codes of `plan-check` and `plan-status`: `0` clean, `1` stale, `2` strict-unverified
+(`plan-check` only), `3` bad config or empty plan. An empty plan is deliberately **not** a success:
+that was the silent-green failure mode a root-relative layout produced.
 
 ## Workflow
 
 ```bash
+plan-init                                   # once: .planlib + config + dodo.py
 plan-status
-plan-task set TASK-2 --status "In Progress" --if-status "To Do"
-poetry run doit s2
-plan-task set TASK-2 --status Done --check-ac 1 --note "doit s2 — passed"
+plan-task set TASK-3 --status "In Progress" --if-status "To Do"
+poetry run doit s3
+plan-task set TASK-3 --status Done --check-ac 1 --note "doit s3 — passed"
 plan-check
 ```
 
-Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-config.yaml) has a hook.
+Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-config.yaml) runs it with
+`always_run: true`, so it is independent of where the state lives.
 
-## Layout
+## doit: what matters
+
+- `doit -d` is a **directory**, not the database. The database is `--db-file` or
+  `DOIT_CONFIG["dep_file"]`.
+- doit changes its working directory to the dodo file's directory, so relative `file_dep` resolve
+  against it. plan-ledger always invokes
+  `doit -f <dodo> -d <root> info --db-file <db> <shard>`, which makes relative paths resolve against
+  the code root even when `dodo.py` sits in `.planlib/`.
+- A command run by hand needs the same `-d`: `doit -f .planlib/dodo.py -d . s1`.
+- Subprocess actions inherit doit's cwd; pin it explicitly: `CmdAction(..., cwd=str(ROOT))`.
+- `plan-init` generates absolute `file_dep` computed from the dodo location and an absolute
+  `dep_file`, so the database never lands in the code root.
+
+## Layout of this repository
 
 | Path | Role |
 |---|---|
+| `planlib/config.py` | layout resolution: config search, overrides, errors |
 | `planlib/model.py` | task model: frontmatter, sections, acceptance, `Blocked`, `owner` |
-| `planlib/acceptance.py` | reads `doit` state: `up-to-date` / `run` / `unknown` / `no-doit` |
-| `planlib/cli/{task,status,gate,importer,scraper}.py` | CLI layer |
-| `backlog/` | demo project: three shards with acceptance and one blocked-by-dependency task |
-| `dodo.py` | acceptance jobs for the demo shards |
+| `planlib/acceptance.py` | doit invocation and status: `up-to-date` / `run` / `error` / `unknown` |
+| `planlib/cli/` | `task`, `status`, `gate`, `init`, `importer`, `scraper` |
+| `backlog/` | demo project with three shards |
+| `plan-ledger.toml` | this repository's layout (root) |
 | `examples/` | anonymized plan formats and an import result (`examples/local/` is gitignored) |
-| `skill/plan-ledger/SKILL.md` | agent protocol (resume / take / verify / gate / close) |
-| `AGENTS.md` | the same protocol as a short repository snippet |
-| `tests/` | model, CAS, acceptance, import adapters, legacy-file round-trip |
-
-## Design notes
-
-- Acceptance is a command, not a sentence: `doit` re-runs it when `file_dep` changes, so a stale
-  `Done` becomes visible instead of staying green forever.
-- Migration is not all-or-nothing: tasks imported from historical plans carry `migrated` and stay
-  `unverified`; the gate ignores them unless `--strict`.
-- No MCP server: the tracker's MCP surface was ~30 tools / ~35 KB of schemas per request, which is
-  worse than a ~2 KB skill loaded on demand.
+| `skill/plan-ledger/SKILL.md`, `AGENTS.md` | agent protocol |
+| `tests/` | config, gate, acceptance, init, CLI flags, real-doit layout integration |
 
 ## Limits
 
-- `.doit.db` is local, so on CI every acceptance reads `run`; gate only freshness there.
+- `.doit.db` is local, so on CI every acceptance reads `run`; the gate checks freshness there.
 - Statuses are `To Do / In Progress / Blocked / Done`; a blocker's reason lives in notes.
 - Task titles are transliterated into ASCII file names.
 - CLI messages are currently in Russian.

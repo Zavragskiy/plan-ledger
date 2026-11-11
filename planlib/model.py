@@ -99,15 +99,6 @@ def _now() -> str:
     return dt.datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-def project_root(path: pathlib.Path) -> pathlib.Path:
-    resolved = pathlib.Path(path).resolve()
-    return resolved.parent if resolved.name == "backlog" else resolved
-
-
-def tasks_dir(project: pathlib.Path) -> pathlib.Path:
-    return project_root(project) / "backlog" / "tasks"
-
-
 def slugify(title: str) -> str:
     text = "".join(TRANSLIT.get(char, char) for char in title.lower())
     text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
@@ -158,37 +149,41 @@ def parse(path: pathlib.Path) -> Task:
     )
 
 
-def load_tasks(project: pathlib.Path) -> list[Task]:
-    tasks: list[Task] = []
-    for path in sorted(tasks_dir(project).glob("*.md")):
+def load_tasks(tasks: pathlib.Path) -> list[Task]:
+    """Задачи из каталога задач (обычно ``<state>/backlog/tasks``)."""
+    tasks = pathlib.Path(tasks)
+    loaded: list[Task] = []
+    if not tasks.is_dir():
+        return loaded
+    for path in sorted(tasks.glob("*.md")):
         try:
             task = parse(path)
         except ValueError:
             continue
         task.path = path  # type: ignore[attr-defined]
-        tasks.append(task)
-    return tasks
+        loaded.append(task)
+    return loaded
 
 
-def find(project: pathlib.Path, task_id: str) -> Task:
+def find(tasks: pathlib.Path, task_id: str) -> Task:
     wanted = task_id.lower()
-    for task in load_tasks(project):
+    for task in load_tasks(tasks):
         if task.id.lower() in {wanted, f"task-{wanted.removeprefix('task-')}"}:
             return task
-    raise SystemExit(f"задача {task_id} не найдена в {tasks_dir(project)}")
+    raise SystemExit(f"задача {task_id} не найдена в {pathlib.Path(tasks)}")
 
 
-def next_id(project: pathlib.Path) -> str:
+def next_id(tasks: pathlib.Path) -> str:
     highest = 0
-    for task in load_tasks(project):
+    for task in load_tasks(tasks):
         match = re.fullmatch(r"TASK-(\d+)", task.id, re.I)
         if match:
             highest = max(highest, int(match.group(1)))
     return f"TASK-{highest + 1}"
 
 
-def save(task: Task, project: pathlib.Path) -> pathlib.Path:
-    root = tasks_dir(project)
+def save(task: Task, tasks: pathlib.Path) -> pathlib.Path:
+    root = pathlib.Path(tasks)
     root.mkdir(parents=True, exist_ok=True)
     task.updated = _now()
     if getattr(task, "path", None) and pathlib.Path(task.path).exists():
@@ -201,7 +196,7 @@ def save(task: Task, project: pathlib.Path) -> pathlib.Path:
 
 
 def create(
-    project: pathlib.Path,
+    tasks: pathlib.Path,
     title: str,
     description: str = "",
     status: str = STATUSES[0],
@@ -214,7 +209,7 @@ def create(
     check_first: bool | None = None,
 ) -> Task:
     task = Task(
-        id=next_id(project),
+        id=next_id(tasks),
         title=title,
         status=status,
         labels=list(labels or []),
@@ -226,7 +221,7 @@ def create(
         description=description,
         acceptance=[(False, item) for item in (acceptance or [])],
     )
-    save(task, project)
+    save(task, tasks)
     return task
 
 

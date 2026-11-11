@@ -1,23 +1,29 @@
 """`plan-task`: создание и правка задач плана без внешнего трекера.
 
+Раскладка берётся из конфига (plan-ledger.toml / pyproject) или из --project.
 Примеры:
   plan-task list
   plan-task new "s4: кэш спектров" --ac "pytest tests/test_cache.py" -l shard:s4
   plan-task set TASK-4 --status "In Progress" --if-status "To Do"
-  plan-task set TASK-4 --check-ac 1 --note "session 7d23: приёмка зелёная"
+  plan-task list --project .planlib
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import pathlib
 
 from planlib import model
+from planlib.config import (
+    Layout,
+    LayoutError,
+    layout_arguments_parent,
+    layout_from_args,
+)
 from planlib.console import enable_utf8
 
 
-def _print_task(task: model.Task) -> None:
+def _print_task(task: model.Task, layout: Layout) -> None:
     print(f"{task.id} [{task.status}] {task.title}")
     if task.labels:
         print(f"  labels: {', '.join(task.labels)}")
@@ -25,18 +31,25 @@ def _print_task(task: model.Task) -> None:
         print(f"  deps:   {', '.join(task.dependencies)}")
     for number, (done, text) in enumerate(task.acceptance, 1):
         print(f"  AC #{number} [{'x' if done else ' '}] {text}")
+    if getattr(task, "path", None):
+        try:
+            shown = task.path.relative_to(layout.root).as_posix()
+        except ValueError:
+            shown = str(task.path)
+        print(f"  file:   {shown}")
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="plan-task", description=__doc__)
-    parser.add_argument("--project", type=pathlib.Path, default=pathlib.Path.cwd())
+    top = layout_arguments_parent()
+    sub_flags = layout_arguments_parent(suppress_defaults=True)
+    parser = argparse.ArgumentParser(prog="plan-task", description=__doc__, parents=[top])
     sub = parser.add_subparsers(dest="command", required=True)
 
-    listing = sub.add_parser("list", help="список задач")
+    listing = sub.add_parser("list", parents=[sub_flags], help="список задач")
     listing.add_argument("--status")
     listing.add_argument("--json", action="store_true")
 
-    new = sub.add_parser("new", help="создать задачу")
+    new = sub.add_parser("new", parents=[sub_flags], help="создать задачу")
     new.add_argument("title")
     new.add_argument("-d", "--description", default="")
     new.add_argument("--ac", action="append", default=[], help="критерий приёмки (можно несколько)")
@@ -46,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     new.add_argument("--status", default=model.STATUSES[0], choices=model.STATUSES)
     new.add_argument("--owner")
 
-    edit = sub.add_parser("set", help="изменить задачу (CAS через --if-status)")
+    edit = sub.add_parser("set", parents=[sub_flags], help="изменить задачу (CAS через --if-status)")
     edit.add_argument("task_id")
     edit.add_argument("--status", choices=model.STATUSES)
     edit.add_argument("--if-status", help="менять только если текущий статус ровно такой")
@@ -59,39 +72,51 @@ def main(argv: list[str] | None = None) -> int:
     edit.add_argument("--uncheck-ac", type=int)
     edit.add_argument("--description")
 
-    show = sub.add_parser("show", help="показать задачу")
+    show = sub.add_parser("show", parents=[sub_flags], help="показать задачу")
     show.add_argument("task_id")
     show.add_argument("--json", action="store_true")
 
     enable_utf8()
     args = parser.parse_args(argv)
-    project = args.project
+    try:
+        layout = layout_from_args(args)
+    except LayoutError as error:
+        print(f"ошибка конфига: {error}")
+        return 3
+    tasks = layout.tasks
 
     if args.command == "list":
-        tasks = model.load_tasks(project)
+        items = model.load_tasks(tasks)
         if args.status:
-            tasks = [task for task in tasks if task.status == args.status]
+            items = [task for task in items if task.status == args.status]
         if args.json:
-            payload = [
-                {
-                    "id": task.id,
-                    "title": task.title,
-                    "status": task.status,
-                    "labels": task.labels,
-                    "dependencies": task.dependencies,
-                    "acceptance": [{"done": done, "text": text} for done, text in task.acceptance],
-                }
-                for task in tasks
-            ]
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            print(
+                json.dumps(
+                    [
+                        {
+                            "id": task.id,
+                            "title": task.title,
+                            "status": task.status,
+                            "labels": task.labels,
+                            "dependencies": task.dependencies,
+                            "acceptance": [
+                                {"done": done, "text": text} for done, text in task.acceptance
+                            ],
+                        }
+                        for task in items
+                    ],
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             return 0
-        for task in tasks:
+        for task in items:
             print(f"{task.id} [{task.status}] {task.title}")
         return 0
 
     if args.command == "new":
         task = model.create(
-            project,
+            tasks,
             title=args.title,
             description=args.description,
             status=args.status,
@@ -101,11 +126,11 @@ def main(argv: list[str] | None = None) -> int:
             priority=args.priority,
             owner=args.owner,
         )
-        _print_task(task)
+        _print_task(task, layout)
         return 0
 
     if args.command == "show":
-        task = model.find(project, args.task_id)
+        task = model.find(tasks, args.task_id)
         if args.json:
             print(
                 json.dumps(
@@ -116,7 +141,9 @@ def main(argv: list[str] | None = None) -> int:
                         "labels": task.labels,
                         "dependencies": task.dependencies,
                         "owner": task.owner,
-                        "acceptance": [{"done": done, "text": text} for done, text in task.acceptance],
+                        "acceptance": [
+                            {"done": done, "text": text} for done, text in task.acceptance
+                        ],
                         "notes": task.notes,
                     },
                     ensure_ascii=False,
@@ -124,10 +151,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         else:
-            _print_task(task)
+            _print_task(task, layout)
         return 0
 
-    task = model.find(project, args.task_id)
+    task = model.find(tasks, args.task_id)
     if args.if_status and task.status != args.if_status:
         print(f"отказ: {task.id} в статусе '{task.status}', ожидался '{args.if_status}'")
         return 1
@@ -151,8 +178,12 @@ def main(argv: list[str] | None = None) -> int:
         task.check(args.check_ac)
     if args.uncheck_ac:
         task.uncheck(args.uncheck_ac)
-    path = model.save(task, project)
-    print(f"{task.id} сохранён ({task.status}) → {path.name}")
+    path = model.save(task, tasks)
+    try:
+        shown = path.relative_to(layout.root).as_posix()
+    except ValueError:
+        shown = str(path)
+    print(f"{task.id} сохранён ({task.status}) → {shown}")
     return 0
 
 

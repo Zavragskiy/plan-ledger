@@ -1,27 +1,29 @@
 """Гейт плана: задачи Done обязаны иметь подтверждённую приёмку doit.
 
-Коды выхода: 0 — чисто, 1 — есть протухшие (stale), 2 — --strict и есть
-непроверенные Done-задачи (историческая миграция без приёмки).
+Коды выхода: 0 — чисто, 1 — протухшие (stale), 2 — --strict и непроверенные Done,
+3 — конфиг/пустой план.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import pathlib
-import sys
 
 from planlib import acceptance_status, load_tasks
+from planlib.config import (
+    Layout,
+    LayoutError,
+    layout_arguments_parent,
+    layout_from_args,
+)
 from planlib.console import enable_utf8
 
-ROOT = pathlib.Path.cwd()
 
-
-def collect(project: pathlib.Path) -> list[dict]:
+def collect(layout: Layout, tasks) -> list[dict]:
     rows: list[dict] = []
-    for task in load_tasks(project):
+    for task in tasks:
         if task.shard:
-            state, detail = acceptance_status(project, task.shard)
+            state, detail = acceptance_status(layout, task.shard)
         else:
             state, detail = "no-acceptance", "у задачи нет метки shard:<name>"
         if task.status == "Done":
@@ -47,15 +49,39 @@ def collect(project: pathlib.Path) -> list[dict]:
     return rows
 
 
+def _empty_message(layout: Layout) -> str:
+    if not layout.tasks_exist:
+        return (
+            f"нет каталога задач: {layout.tasks}\n"
+            "Запустите `plan-init` или укажите --project/--config."
+        )
+    return (
+        f"в плане нет задач: {layout.tasks}\n"
+        "Это не «зелёный» результат: задачи не найдены. "
+        "Запустите `plan-init` или проверьте конфиг (--project/--config)."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", type=pathlib.Path, default=ROOT)
+    parser = argparse.ArgumentParser(description=__doc__, parents=[layout_arguments_parent()])
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--strict", action="store_true", help="непроверенные Done тоже ошибка")
+    parser.add_argument("--allow-empty", action="store_true", help="пустой план не ошибка")
     enable_utf8()
     args = parser.parse_args(argv)
 
-    rows = collect(args.project.resolve())
+    try:
+        layout = layout_from_args(args)
+    except LayoutError as error:
+        print(f"ошибка конфига: {error}")
+        return 3
+
+    tasks = load_tasks(layout.tasks)
+    if not tasks and not args.allow_empty:
+        print(_empty_message(layout))
+        return 3
+
+    rows = collect(layout, tasks)
     stale = [row for row in rows if row["verdict"] == "stale"]
     unverified = [row for row in rows if row["verdict"] == "unverified"]
     summary = {
@@ -67,8 +93,15 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     if args.json:
-        print(json.dumps({"rows": rows, "summary": summary}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"layout": layout.as_dict(), "rows": rows, "summary": summary},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
+        print(f"План: {layout.describe()}")
         print(f"{'task':8} {'status':12} {'shard':9} {'приёмка':13} вердикт")
         for row in rows:
             shard = row["shard"] or "-"
