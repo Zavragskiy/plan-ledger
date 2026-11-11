@@ -1,5 +1,7 @@
 # plan-ledger
 
+[![ci](https://github.com/Zavragskiy/plan-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/Zavragskiy/plan-ledger/actions/workflows/ci.yml)
+
 Deterministic, file-first plan tracking for work that spans many sessions. No Jira, no database:
 tasks are Markdown files with YAML frontmatter, and "done" is proven by an acceptance run instead of
 a claim. A gate fails when a `Done` task's files changed after its acceptance.
