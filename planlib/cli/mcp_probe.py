@@ -32,6 +32,9 @@ def read_until(process: subprocess.Popen, wanted_id: int, limit: int = 50) -> di
 
 
 def main() -> int:
+    from planlib.console import enable_utf8
+
+    enable_utf8()
     if not BIN.exists():
         raise SystemExit(f"нет {BIN}; поставь: uv tool install backlog-md-py==2.2.0")
     process = subprocess.Popen(

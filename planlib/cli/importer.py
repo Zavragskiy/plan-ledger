@@ -14,6 +14,8 @@ import pathlib
 import re
 from dataclasses import dataclass, field
 
+from planlib.console import enable_utf8
+
 PHASE = re.compile(r"^(#{2,3})[ \t]+Phase[ \t]+(\d+)[ \t]*[:—–-][ \t]*(.+?)[ \t]*$", re.M)
 STATUS_WORD = re.compile(r"^(done|pending|planned|todo|not started|in progress)\b", re.I)
 SECTIONS = ("tasks", "dependencies", "acceptance criteria", "references", "status")
@@ -206,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source", type=pathlib.Path, help="путь к roadmap или numbered-плану")
     parser.add_argument("--project", type=pathlib.Path, required=True, help="каталог backlog-проекта")
     parser.add_argument("--apply", action="store_true", help="создать задачи (иначе dry-run)")
+    enable_utf8()
     args = parser.parse_args(argv)
 
     fmt, items = parse(args.source)

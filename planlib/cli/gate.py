@@ -12,6 +12,7 @@ import pathlib
 import sys
 
 from planlib import acceptance_status, load_tasks
+from planlib.console import enable_utf8
 
 ROOT = pathlib.Path.cwd()
 
@@ -51,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project", type=pathlib.Path, default=ROOT)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--strict", action="store_true", help="непроверенные Done тоже ошибка")
+    enable_utf8()
     args = parser.parse_args(argv)
 
     rows = collect(args.project.resolve())

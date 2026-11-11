@@ -14,6 +14,7 @@ import json
 import pathlib
 
 from planlib import model
+from planlib.console import enable_utf8
 
 
 def _print_task(task: model.Task) -> None:
@@ -62,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     show.add_argument("task_id")
     show.add_argument("--json", action="store_true")
 
+    enable_utf8()
     args = parser.parse_args(argv)
     project = args.project
 

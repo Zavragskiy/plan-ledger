@@ -11,6 +11,7 @@ import json
 import pathlib
 
 from planlib import acceptance_status, load_tasks, project_root, ready
+from planlib.console import enable_utf8
 
 ROOT = pathlib.Path.cwd()
 BEGIN = "<!-- plans:begin -->"
@@ -58,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=pathlib.Path, default=ROOT)
     parser.add_argument("--json", action="store_true")
+    enable_utf8()
     args = parser.parse_args(argv)
 
     data = build(args.project.resolve())

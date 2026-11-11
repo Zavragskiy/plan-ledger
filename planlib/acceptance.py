@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import shutil
@@ -33,6 +34,7 @@ def acceptance_status(project: pathlib.Path, shard: str) -> tuple[str, str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
     )
     output = result.stdout
     if "up-to-date" in output:

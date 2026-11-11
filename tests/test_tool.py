@@ -211,3 +211,11 @@ def test_blocked_status_blocks_readiness(tmp_path):
     tasks = load_tasks(project)
     by_id = {task.id: task for task in tasks}
     assert ready(by_id["TASK-1"], by_id) is False
+
+
+def test_enable_utf8_is_safe_to_call_twice():
+    from planlib.console import enable_utf8
+
+    enable_utf8()
+    enable_utf8()
+    assert sys.stdout is not None

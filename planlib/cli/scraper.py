@@ -8,6 +8,8 @@ import pathlib
 import re
 import shutil
 
+from planlib.console import enable_utf8
+
 ROOT = pathlib.Path.cwd()
 EXCLUDE = re.compile(
     r"\\node_modules\\|\\\.venv\\|__pycache__|site-packages|\\build\\|\\dist\\|"
@@ -63,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         help="каталог с репозиториями (или переменная PLAN_PROJECTS)",
     )
     parser.add_argument("--out", type=pathlib.Path, default=ROOT / "examples" / "local")
+    enable_utf8()
     args = parser.parse_args(argv)
 
     items = collect(args.projects)
