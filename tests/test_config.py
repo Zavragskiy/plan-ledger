@@ -23,10 +23,34 @@ def test_resolves_plan_ledger_toml(tmp_path):
     layout = resolve(start=tmp_path)
     assert layout.root == tmp_path
     assert layout.state == tmp_path / ".planlib"
-    assert layout.tasks == tmp_path / ".planlib" / "backlog" / "tasks"
+    # tasks по умолчанию — от каталога конфига, а не от state: план не прячется
+    assert layout.tasks == tmp_path / "backlog" / "tasks"
     assert layout.dodo == tmp_path / "dodo.py"
     assert layout.db == tmp_path / ".planlib" / ".doit.db"
     assert layout.config_file == tmp_path / "plan-ledger.toml"
+
+
+def test_tasks_base_state_keeps_old_layout(tmp_path):
+    write_config(tmp_path, state=".planlib", tasks="backlog/tasks", tasks_base="state")
+    assert resolve(start=tmp_path).tasks == tmp_path / ".planlib" / "backlog" / "tasks"
+
+
+def test_tasks_base_root_uses_code_root(tmp_path):
+    (tmp_path / "app").mkdir()
+    write_config(tmp_path, root="app", state=".planlib", tasks="backlog/tasks", tasks_base="root")
+    assert resolve(start=tmp_path).tasks == tmp_path / "app" / "backlog" / "tasks"
+
+
+def test_tasks_absolute_path(tmp_path):
+    absolute = (tmp_path / "elsewhere").as_posix()
+    write_config(tmp_path, state=".planlib", tasks=absolute)
+    assert resolve(start=tmp_path).tasks == tmp_path / "elsewhere"
+
+
+def test_unknown_tasks_base_is_error(tmp_path):
+    write_config(tmp_path, tasks_base="somewhere")
+    with pytest.raises(LayoutError, match="tasks_base"):
+        resolve(start=tmp_path)
 
 
 def test_resolves_pyproject_table(tmp_path):

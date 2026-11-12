@@ -35,21 +35,29 @@ existing `backlog/tasks/*.md` are read as-is and unknown sections (`Implementati
 | Layout | Config | Notes |
 |---|---|---|
 | root | `state = "."` | `backlog/tasks`, `.doit.db`, `dodo.py` in the repo root |
-| state dir | `state = ".planlib"` | tasks and DB in `.planlib/`, `dodo.py` in the root |
+| state dir | `state = ".planlib"` | DB in `.planlib/`, `dodo.py` in the root, tasks in `backlog/tasks` |
 | dodo in state | `state = ".planlib"`, `dodo = ".planlib/dodo.py"` | relative `file_dep` still resolve: we pass `-d <root>` |
+| tasks in state (legacy) | `tasks_base = "state"` | tasks live inside `state`, e.g. `.planlib/backlog/tasks` |
 
 Config is looked up upward from the current directory: `plan-ledger.toml` first, then
-`pyproject.toml` with `[tool.plan-ledger]`. Paths are relative to the config's directory.
+`pyproject.toml` with `[tool.plan-ledger]`.
 
 ```toml
 # plan-ledger.toml
 [plan-ledger]
-root  = "."            # code root: dodo.py and file_dep
-state = ".planlib"     # tasks and doit database
-tasks = "backlog/tasks"
-dodo  = "dodo.py"
-db    = ".doit.db"
+root       = "."            # code root: dodo.py and file_dep
+state      = ".planlib"     # state dir and doit database
+tasks      = "backlog/tasks"
+tasks_base = "config"       # config | root | state
+dodo       = "dodo.py"
+db         = ".doit.db"
 ```
+
+`tasks` is resolved from the **project root** (the config's directory) by default — that is the
+0.3.0 fix for `plan-init --tasks backlog/tasks` silently creating `.planlib/backlog/tasks`. Use
+`tasks_base = "root"` to resolve it from `root`, or `tasks_base = "state"` for the old
+state-relative layout; an absolute `tasks` path also works. `dodo` is relative to `root`, `db` to
+`state`.
 
 `--project` (state), `--root` (code root) and `--config` override the config; flags are accepted
 before or after a subcommand.
@@ -58,19 +66,22 @@ before or after a subcommand.
 
 | Command | Purpose |
 |---|---|
-| `plan-init [--state .planlib] [--config pyproject] [--dry-run]` | scaffold state, config, `dodo.py`, `.gitignore` |
+| `plan-init [--state .planlib] [--tasks-base state] [--with-placeholder] [--config pyproject] [--dry-run]` | scaffold state, config, `dodo.py`, `.gitignore` |
 | `plan-task list [--status S] [--json]` | list tasks |
-| `plan-task new TITLE [-d DESC] [--ac …] [-l shard:sN] [--dep ID]` | create a task |
-| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--check-ac N[,N…]] [--force]` | edit, with compare-and-set |
+| `plan-task new TITLE [-d DESC] [--ac …] [--shard gate] [--id ID] [--slug NAME] [--dep ID]` | create a task |
+| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--shard NAME] [--slug NAME] [--check-ac N[,N…]] [--force]` | edit, with compare-and-set |
 | `plan-status [--json]` | statuses, readiness, acceptance, next task |
-| `plan-run [SHARD …] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses |
+| `plan-run [SHARD …] [--all] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses |
+| `plan-shard list [--json]` | shards declared in `dodo.py` and the tasks that reference them |
 | `plan-check [--json] [--strict] [--allow-empty]` | gate |
 | `plan-import SOURCE [--apply]` | import `## Phase N` roadmaps and numbered task files |
+| `plan-import --from-json FILE [--apply] [--group-by file\|rule\|none] [--shard NAME]` | turn machine-readable gate findings into tasks |
 | `plan-scrape [--projects DIR] [--out DIR]` | copy local plans into `examples/local/` (gitignored) |
 
 Exit codes of `plan-check` and `plan-status`: `0` clean, `1` stale or incomplete, `2`
 strict-unverified (`plan-check` only), `3` bad config or empty plan. An empty plan is deliberately
-**not** a success: that was the silent-green failure mode a root-relative layout produced.
+**not** a success: that was the silent-green failure mode a root-relative layout produced. The
+explicit escape hatches are `plan-check --allow-empty` and `plan-init --with-placeholder`.
 
 ## Acceptance criteria are enforced
 
@@ -89,14 +100,77 @@ TASK-1   Done   1/3   s1   up-to-date   incomplete
 - Tasks without criteria (imported historical plans) keep working as before: `unverified` under
   `--strict` only.
 
+## Task ids and file names
+
+`TASK-N` is the default, but the file name is derived from the title, and Cyrillic titles
+transliterate into long noise in git diffs. Two flags fix that:
+
+```bash
+plan-task new "Убрать файловые исключения из гейта сложности" \
+    --id QUALITY-GATE --slug quality-gate --shard gate
+# → backlog/tasks/quality-gate.md, frontmatter: id: QUALITY-GATE, slug: quality-gate
+```
+
+- `--slug` sets the whole file stem (`quality-gate.md`); it is stored in frontmatter and survives
+  later edits. Without `--slug`, the legacy `<id> - <transliterated-title>.md` name is kept.
+- `plan-task set <id> --slug <name>` renames the file; renaming onto an existing file is refused.
+- A task can be addressed by id or by slug: `plan-task set quality-gate --status "In Progress"`.
+- `--shard NAME` is the readable form of `-l shard:NAME` and works in both `new` and `set`
+  (`set --shard` replaces the previous shard label instead of appending another one).
+
+## Shards without manual lists
+
+`plan-run` no longer needs a hand-maintained list of shard names:
+
+```bash
+plan-run --all          # every shard referenced by a plan task, deduplicated
+plan-shard list         # shards declared in dodo.py + tasks pointing at them
+```
+
+`plan-shard list` reads the shard list through `doit list` (so dynamically created tasks count)
+and falls back to parsing `task_*` functions out of `dodo.py` when doit is unavailable. It marks
+tasks that reference a shard missing from `dodo.py` (`(нет в dodo.py)`) and tasks with no
+`shard:` label at all. `--json` output is meant for agents.
+
+## Bootstrap: an empty plan is not green
+
+`plan-check` treats "no tasks" as exit 3, so a fresh repository with the pre-commit hook already
+installed cannot make its first commit. Two explicit ways out:
+
+```bash
+plan-init --with-placeholder   # one open bootstrap task (gate passes)
+plan-check --allow-empty       # accept an empty plan once; warns on stderr
+```
+
+`--with-placeholder` is idempotent: if the plan already has tasks, it does nothing.
+
+## Importing gate findings
+
+Machine-readable findings (lizard/xenon and friends) can become tasks instead of being copied by
+hand:
+
+```bash
+plan-import --from-json findings.json --shard gate            # dry-run
+plan-import --from-json findings.json --shard gate --apply
+plan-import --from-json findings.json --group-by file --apply # one task per file
+```
+
+The report is a list of findings or `{"shard": "gate", "labels": ["audit"], "findings": [...]}`
+(see [`examples/findings.json`](examples/findings.json));
+each finding may carry `title`, `message`, `rule`, `file`, `line`, `description`, `acceptance`
+(list), `labels`, `priority`, `id`, `slug`, `reference`. `--group-by file|rule` creates one task
+per file/rule with every finding as an acceptance criterion. Re-running the same report is
+idempotent: a finding whose `reference` (default `file:line`) is already in a task's `references`
+is skipped.
+
 ## Workflow
 
 ```bash
-plan-init                                   # once: .planlib + config + dodo.py
+plan-init --with-placeholder                # once: .planlib + config + dodo.py
 plan-status
 plan-task set TASK-3 --status "In Progress" --if-status "To Do"
-plan-run s3                                 # exactly what plan-check will verify
-plan-task set TASK-3 --status Done --check-ac 1 --note "plan-run s3 — passed"
+plan-run --all                              # exactly what plan-check will verify
+plan-task set TASK-3 --status Done --check-ac 1 --note "plan-run --all — passed"
 plan-check
 ```
 
@@ -127,7 +201,7 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
 | `planlib/config.py` | layout resolution: config search, overrides, errors |
 | `planlib/model.py` | task model: frontmatter, sections, acceptance, `Blocked`, `owner` |
 | `planlib/acceptance.py` | doit invocation and status: `up-to-date` / `run` / `error` / `unknown` |
-| `planlib/cli/` | `task`, `status`, `gate`, `init`, `importer`, `scraper` |
+| `planlib/cli/` | `task`, `status`, `gate`, `run`, `shard`, `init`, `importer`, `scraper` |
 | `backlog/` | demo project with three shards |
 | `plan-ledger.toml` | this repository's layout (root) |
 | `examples/` | anonymized plan formats and an import result (`examples/local/` is gitignored) |
@@ -138,7 +212,10 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
 
 - `.doit.db` is local, so on CI every acceptance reads `run`; the gate checks freshness there.
 - Statuses are `To Do / In Progress / Blocked / Done`; a blocker's reason lives in notes.
-- Task titles are transliterated into ASCII file names.
+- Without `--slug`, task titles are transliterated into ASCII file names; `--slug` opts out.
+- Upgrading from 0.2: `tasks` is now resolved from the config's directory. A config that kept
+  tasks inside `state` (`.planlib/backlog/tasks`) needs `tasks_base = "state"` or a `tasks` path
+  that includes the state dir.
 - CLI messages are currently in Russian.
 
 ## License

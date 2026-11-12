@@ -1,7 +1,8 @@
 """Раскладка плана: конфиг, поиск вверх, резолв путей.
 
 Конфиг ищется вверх от cwd: сначала ``plan-ledger.toml``, затем ``pyproject.toml``
-с таблицей ``[tool.plan-ledger]``. Пути в конфиге — относительно его каталога.
+с таблицей ``[tool.plan-ledger]``. ``tasks`` по умолчанию считается от каталога
+конфига (``tasks_base = "config"``), ``dodo`` — от корня кода, ``db`` — от state.
 """
 
 from __future__ import annotations
@@ -17,10 +18,12 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 
 CONFIG_NAME = "plan-ledger.toml"
 PYPROJECT_TABLE = ("tool", "plan-ledger")
+TASKS_BASES = ("config", "root", "state")
 DEFAULTS = {
     "root": ".",
     "state": ".",
     "tasks": "backlog/tasks",
+    "tasks_base": "config",
     "dodo": "dodo.py",
     "db": ".doit.db",
 }
@@ -85,6 +88,12 @@ def _read_table(path: pathlib.Path) -> dict | None:
     for key, value in table.items():
         if not isinstance(value, str):
             raise LayoutError(f"{path}: [plan-ledger].{key} должно быть строкой")
+    base = table.get("tasks_base", DEFAULTS["tasks_base"])
+    if base not in TASKS_BASES:
+        raise LayoutError(
+            f"{path}: [plan-ledger].tasks_base = {base!r}; "
+            f"допустимо: {', '.join(TASKS_BASES)}"
+        )
     return table
 
 
@@ -143,12 +152,16 @@ def resolve(
         state = (project or base / table.get("state", DEFAULTS["state"])).resolve()
         code_root = (root or base / table.get("root", DEFAULTS["root"])).resolve()
         tasks_rel = table.get("tasks", DEFAULTS["tasks"])
+        tasks_base = table.get("tasks_base", DEFAULTS["tasks_base"])
         dodo_rel = table.get("dodo", DEFAULTS["dodo"])
         db_rel = table.get("db", DEFAULTS["db"])
+        # tasks по умолчанию считаются от каталога конфига (корня проекта), а не
+        # от state: иначе `--tasks backlog/tasks` прячет план в .planlib/.
+        tasks_dir = {"config": base, "root": code_root, "state": state}[tasks_base]
         layout = Layout(
             root=code_root,
             state=state,
-            tasks=(state / tasks_rel).resolve(),
+            tasks=(tasks_dir / tasks_rel).resolve(),
             dodo=(code_root / dodo_rel).resolve(),
             db=(state / db_rel).resolve(),
             config_file=config_file,

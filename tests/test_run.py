@@ -68,6 +68,44 @@ def test_missing_dodo_is_exit_3(tmp_path, monkeypatch, capsys):
     assert "нет dodo-файла" in capsys.readouterr().out
 
 
+def test_all_runs_distinct_shards_from_plan(tmp_path, monkeypatch):
+    from planlib import model
+
+    layout = layout_for(tmp_path)
+    model.create(layout.tasks, title="one", labels=["shard:s2"])
+    model.create(layout.tasks, title="two", labels=["shard:s1"])
+    model.create(layout.tasks, title="three", labels=["shard:s2"])
+    seen: dict[str, tuple[str, ...]] = {}
+
+    def fake_run(layout_arg, action, *tasks):
+        seen["tasks"] = tasks
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
+    monkeypatch.setattr("planlib.cli.run.doit_executable", lambda layout: "doit")
+    monkeypatch.setattr("planlib.cli.run.run", fake_run)
+
+    assert plan_run.main(["--all"]) == 0
+    assert seen["tasks"] == ("s2", "s1"), "шарды без повторов, в порядке появления в плане"
+
+
+def test_all_with_explicit_shard_is_refused(tmp_path, monkeypatch, capsys):
+    layout = layout_for(tmp_path)
+    monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
+    assert plan_run.main(["--all", "s1"]) == 2
+    assert "--all" in capsys.readouterr().out
+
+
+def test_all_without_shards_is_exit_1(tmp_path, monkeypatch, capsys):
+    from planlib import model
+
+    layout = layout_for(tmp_path)
+    model.create(layout.tasks, title="without shard")
+    monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
+    assert plan_run.main(["--all"]) == 1
+    assert "shard:<name>" in capsys.readouterr().out
+
+
 def test_missing_doit_is_exit_3(tmp_path, monkeypatch, capsys):
     layout = layout_for(tmp_path)
     monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)

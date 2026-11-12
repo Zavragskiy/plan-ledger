@@ -14,6 +14,7 @@ description: Use when a task spans many sessions and must stay current without J
 ```powershell
 plan-task list
 plan-status --json
+plan-shard list      # какие шарды есть в dodo.py и какие задачи на них ссылаются
 ```
 
 Читай `plan-status` целиком (~20 строк), а не план-документ. В план-документ (`docs/tasks/...`)
@@ -32,7 +33,7 @@ plan-task set TASK-3 --status "In Progress" --if-status "To Do" --owner "session
 ## Verify (перед Done)
 
 ```powershell
-plan-run s3
+plan-run --all        # все шарды из задач плана; или явно: plan-run s3
 plan-task set TASK-3 --status Done --check-ac 1,2,3 --note "session 7d23: plan-run s3 — 1 passed"
 ```
 
@@ -67,9 +68,14 @@ plan-task set TASK-3 --note "session 7d23: что сделано, чем про�
 
 ## Rules
 
-- Не создавай шард без `shard:<name>` и задачи приёмки в `dodo.py`.
+- Не создавай шард без `shard:<name>` и задачи приёмки в `dodo.py`: `plan-task new … --shard s3`;
+  `set --shard` заменяет метку, `-l shard:s3` остаётся алиасом.
 - Не ставь `Done` без `plan-run`-подтверждения и без отмеченных критериев приёмки.
 - Один пишущий чат на задачу: `--if-status` плюс `--owner`.
+- Русский заголовок не обязан превращаться в длинное имя файла: `--id QUALITY-GATE --slug quality-gate`
+  (slug — имя файла целиком, хранится в frontmatter, `set --slug` переименовывает).
 - Мигрированные исторические задачи (label `migrated`) остаются `unverified` — гейт их не
   блокирует, но приёмки у них нет.
-- Новая раскладка — `plan-init`; вручную конфиг и dodo не пиши.
+- Новая раскладка — `plan-init`; на пустом репозитории с хуком — `plan-init --with-placeholder`,
+  иначе первый коммит блокируется exit 3.
+- Находки гейта не переписывай руками: `plan-import --from-json findings.json --shard gate --apply`.

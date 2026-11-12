@@ -1,0 +1,25 @@
+{
+  "shard": "gate",
+  "labels": ["audit"],
+  "findings": [
+    {
+      "file": "src/app.py",
+      "line": 12,
+      "rule": "C901",
+      "message": "complexity 14 > 10"
+    },
+    {
+      "file": "src/app.py",
+      "line": 40,
+      "rule": "C901",
+      "message": "complexity 12 > 10"
+    },
+    {
+      "file": "src/util.py",
+      "line": 3,
+      "rule": "xenon",
+      "message": "block too complex",
+      "description": "Разбить util.py на модули по ответственности"
+    }
+  ]
+}

@@ -1,8 +1,14 @@
-"""Импорт существующих планов в задачи плана.
+"""Импорт существующих планов и находок гейта в задачи плана.
 
-Поддерживает два распространённых формата:
+Поддерживает три формата:
   roadmap  — `## Phase N: … — DONE` с зависимостями и acceptance criteria
   numbered — `**Статус:**`, `**Приоритет:**`, `**Зависимости:**`, разделы «Что сделать»
+  json     — `--from-json findings.json`: машиночитаемый список находок (lizard/xenon,
+             сложностной гейт), одна задача на находку или на файл/правило
+
+JSON: список объектов или `{"shard": "gate", "findings": [...]}`;
+поля находки — `title`, `message`, `rule`, `file`, `line`, `description`,
+`acceptance` (список), `labels`, `priority`, `id`, `slug`, `reference`.
 
 По умолчанию dry-run; с --apply создаёт задачи через planlib.model.
 """
@@ -10,10 +16,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import re
 from dataclasses import dataclass, field
 
+from planlib import load_tasks
 from planlib.config import LayoutError, layout_arguments_parent, layout_from_args
 from planlib.console import enable_utf8
 
@@ -36,6 +44,14 @@ class Imported:
     labels: list[str] = field(default_factory=list)
     priority: str | None = None
     source: str = ""
+    task_id: str | None = None
+    slug: str | None = None
+    body: str = ""
+    references: list[str] = field(default_factory=list)
+
+
+class JsonImportError(RuntimeError):
+    """Некорректный JSON-отчёт: CLI печатает сообщение и выходит с кодом 3."""
 
 
 def _clean(text: str) -> str:
@@ -161,6 +177,241 @@ def parse_numbered(path: pathlib.Path) -> list[Imported]:
     ]
 
 
+JSON_LIST_KEYS = ("findings", "issues", "items", "tasks")
+JSON_PRIORITIES = {"high", "medium", "low"}
+JSON_GROUPINGS = ("none", "file", "rule")
+
+
+def _plural(count: int, one: str, few: str, many: str) -> str:
+    if count % 10 == 1 and count % 100 != 11:
+        return one
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return few
+    return many
+
+
+def _text(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return "" if value is None else str(value).strip()
+
+
+def _texts(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [str(value).strip()]
+
+
+def load_findings(path: pathlib.Path) -> tuple[list[dict], dict]:
+    """Список находок + метаданные обёртки (`shard`, `labels`)."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise JsonImportError(f"{path}: не удалось прочитать ({error})") from error
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise JsonImportError(f"{path}: некорректный JSON ({error})") from error
+    meta: dict = {}
+    if isinstance(data, dict):
+        for key in JSON_LIST_KEYS:
+            if isinstance(data.get(key), list):
+                meta = {name: value for name, value in data.items() if name != key}
+                data = data[key]
+                break
+        else:
+            data = [data]
+    if not isinstance(data, list):
+        raise JsonImportError(f"{path}: ожидался список находок или объект с 'findings'")
+    for number, item in enumerate(data, 1):
+        if not isinstance(item, dict):
+            raise JsonImportError(f"{path}: находка #{number} — не объект")
+    return data, meta
+
+
+def _finding_file(item: dict) -> str:
+    return _text(item.get("file") or item.get("path") or item.get("source"))
+
+
+def _finding_line(item: dict) -> str:
+    return _text(item.get("line") or item.get("lineno") or item.get("row"))
+
+
+def _finding_rule(item: dict) -> str:
+    return _text(item.get("rule") or item.get("check") or item.get("code") or item.get("kind"))
+
+
+def _finding_message(item: dict) -> str:
+    return _text(item.get("message") or item.get("detail") or item.get("text"))
+
+
+def _where(item: dict) -> str:
+    file = _finding_file(item)
+    line = _finding_line(item)
+    if file and line:
+        return f"{file}:{line}"
+    return file
+
+
+def finding_reference(item: dict) -> str:
+    explicit = _text(item.get("reference"))
+    if explicit:
+        return explicit
+    where = _where(item)
+    if where:
+        return where
+    rule = _finding_rule(item)
+    return rule or _clean(_finding_message(item)) or "находка"
+
+
+def finding_title(item: dict) -> str:
+    title = _text(item.get("title") or item.get("name"))
+    rule, message = _finding_rule(item), _finding_message(item)
+    if not title:
+        if rule and message:
+            title = f"{rule}: {message}"
+        elif message:
+            title = message
+        elif rule:
+            title = rule
+        else:
+            title = _where(item) or "находка гейта"
+    return _clean(title)[:120]
+
+
+def finding_acceptance(item: dict) -> list[str]:
+    acceptance = _texts(item.get("acceptance") or item.get("ac") or item.get("criteria"))
+    if acceptance:
+        return acceptance
+    where, rule = _where(item), _finding_rule(item)
+    target = " ".join(part for part in (rule, where) if part) or finding_reference(item)
+    return [f"находка устранена: {target}"]
+
+
+def finding_labels(item: dict) -> list[str]:
+    labels = _texts(item.get("labels") or item.get("tags"))
+    rule = _finding_rule(item)
+    if rule and len(rule) <= 40:
+        labels.append(f"rule:{rule}")
+    return list(dict.fromkeys(labels))
+
+
+def _unique_slug(base: str, seen: set[str]) -> str:
+    candidate, number = base, 2
+    while candidate in seen:
+        candidate = f"{base}-{number}"
+        number += 1
+    seen.add(candidate)
+    return candidate
+
+
+def _one_finding(item: dict, shard: str | None, labels: list[str]) -> Imported:
+    from planlib import model
+
+    where = _where(item)
+    reference = finding_reference(item)
+    body = [part for part in (_text(item.get("description")), _finding_message(item)) if part]
+    rule = _finding_rule(item)
+    if where:
+        body.append(f"Источник: {where}" + (f" ({rule})" if rule else ""))
+    if not body:
+        body.append(f"Импортировано из отчёта гейта: {reference}")
+    merged = list(dict.fromkeys([*finding_labels(item), *labels]))
+    task_labels = _merge_shard(merged, shard)
+    return Imported(
+        key=reference,
+        title=finding_title(item),
+        status="To Do",
+        acceptance=finding_acceptance(item),
+        labels=task_labels,
+        priority=(
+            _text(item.get("priority")).lower()
+            if _text(item.get("priority")).lower() in JSON_PRIORITIES
+            else None
+        ),
+        source=reference,
+        task_id=_text(item.get("id")) or None,
+        slug=_text(item.get("slug")) or None,
+        body="\n\n".join(body),
+        references=[reference],
+    )
+
+
+def _merge_shard(labels: list[str], shard: str | None) -> list[str]:
+    if not shard:
+        return labels
+    return [label for label in labels if not label.startswith("shard:")] + [f"shard:{shard}"]
+
+
+def _grouped_finding(
+    key: str, grouping: str, members: list[dict], shard: str | None, labels: list[str]
+) -> Imported:
+    from planlib import model
+
+    where_label = "файл" if grouping == "file" else "правило"
+    count = len(members)
+    title = (
+        f"Гейт: {where_label} {key} — {count} {_plural(count, 'находка', 'находки', 'находок')}"
+    )[:120]
+    lines = [f"Импортировано из отчёта гейта ({where_label}: {key}).", "", "Находки:"]
+    acceptance: list[str] = []
+    references: list[str] = []
+    for item in members:
+        rule, message = _finding_rule(item), _finding_message(item)
+        where = _where(item)
+        text = " ".join(part for part in (rule, message) if part) or where or finding_reference(item)
+        suffix = f" ({where})" if where and where not in text else ""
+        lines.append(f"- {text}{suffix}")
+        references.append(finding_reference(item))
+        own = _texts(item.get("acceptance") or item.get("ac") or item.get("criteria"))
+        acceptance.extend(own or [f"находка устранена: {text}{suffix}"])
+    slug = "gate-" + model.slugify(key) if key else "gate-findings"
+    merged = list(dict.fromkeys([*labels, "findings"]))
+    return Imported(
+        key=f"{grouping}:{key}",
+        title=title,
+        status="To Do",
+        acceptance=acceptance,
+        labels=_merge_shard(merged, shard),
+        source=references[0],
+        slug=slug,
+        body="\n".join(lines),
+        references=references,
+    )
+
+
+def from_findings(
+    findings: list[dict],
+    shard: str | None = None,
+    grouping: str = "none",
+    labels: list[str] | None = None,
+) -> list[Imported]:
+    """Находки → задачи: по одной, по файлу или по правилу."""
+    if grouping not in JSON_GROUPINGS:
+        raise JsonImportError(f"неизвестная группировка {grouping!r}: {', '.join(JSON_GROUPINGS)}")
+    base_labels = ["gate", *(labels or [])]
+    if grouping == "none":
+        return [_one_finding(item, shard, base_labels) for item in findings]
+
+    groups: dict[str, list[dict]] = {}
+    for item in findings:
+        key = _finding_file(item) if grouping == "file" else _finding_rule(item)
+        groups.setdefault(key or "прочее", []).append(item)
+    items = [
+        _grouped_finding(key, grouping, members, shard, base_labels)
+        for key, members in groups.items()
+    ]
+    seen: set[str] = set()
+    for item in items:
+        if item.slug:
+            item.slug = _unique_slug(item.slug, seen)
+    return items
+
+
 def parse(path: pathlib.Path) -> tuple[str, list[Imported]]:
     text = path.read_text(encoding="utf-8")
     if PHASE.search(text):
@@ -171,6 +422,8 @@ def parse(path: pathlib.Path) -> tuple[str, list[Imported]]:
 
 
 def description_for(item: Imported) -> str:
+    if item.body:
+        return item.body
     lines = [f"Импортировано из {pathlib.Path(item.source).name}."]
     if item.steps:
         lines.append("")
@@ -190,7 +443,9 @@ def write_task(tasks: pathlib.Path, item: Imported) -> str:
         labels=item.labels,
         acceptance=item.acceptance,
         priority=item.priority,
-        references=[item.source],
+        references=item.references or [item.source],
+        task_id=item.task_id,
+        slug=item.slug,
     )
     print(f"  + {task.id} [{item.status}] {item.title}")
     return task.id
@@ -206,10 +461,38 @@ def link_dependencies(tasks: pathlib.Path, task_id: str, dependencies: list[str]
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, parents=[layout_arguments_parent()])
-    parser.add_argument("source", type=pathlib.Path, help="путь к roadmap или numbered-плану")
+    parser.add_argument(
+        "source",
+        nargs="?",
+        type=pathlib.Path,
+        help="путь к roadmap или numbered-плану",
+    )
+    parser.add_argument(
+        "--from-json",
+        type=pathlib.Path,
+        help="JSON-отчёт находок гейта (lizard/xenon и подобные)",
+    )
+    parser.add_argument("--shard", help="метка shard:<name> для импортируемых задач")
+    parser.add_argument(
+        "--group-by",
+        choices=list(JSON_GROUPINGS),
+        default="none",
+        help="json: одна задача на находку (none), на файл (file) или на правило (rule)",
+    )
+    parser.add_argument("--label", action="append", default=[], help="json: дополнительная метка")
+    parser.add_argument(
+        "--dedupe",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="json: пропускать находки, уже импортированные по reference (по умолчанию да)",
+    )
     parser.add_argument("--apply", action="store_true", help="создать задачи (иначе dry-run)")
     enable_utf8()
     args = parser.parse_args(argv)
+
+    if bool(args.source) == bool(args.from_json):
+        print("нужен ровно один источник: SOURCE (roadmap/numbered) или --from-json FILE")
+        return 2
 
     try:
         layout = layout_from_args(args)
@@ -218,23 +501,63 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     tasks = layout.tasks
 
-    fmt, items = parse(args.source)
-    print(f"формат: {fmt}; найдено единиц: {len(items)}")
+    if args.from_json is not None:
+        try:
+            findings, meta = load_findings(args.from_json)
+            shard = args.shard or _text(meta.get("shard")) or None
+            labels = [*args.label, *_texts(meta.get("labels"))]
+            items = from_findings(
+                findings, shard=shard, grouping=args.group_by, labels=labels
+            )
+        except JsonImportError as error:
+            print(f"ошибка импорта: {error}")
+            return 3
+        count = len(findings)
+        fmt = f"json ({count} {_plural(count, 'находка', 'находки', 'находок')})"
+    else:
+        fmt, items = parse(args.source)
+
+    print(f"формат: {fmt}; к созданию: {len(items)}")
     for item in items:
-        print(f"  - [{item.status}] {item.title} (шагов {len(item.steps)}, AC {len(item.acceptance)}, deps {item.deps})")
+        extra = f"AC {len(item.acceptance)}"
+        if item.task_id:
+            extra += f", id {item.task_id}"
+        if item.slug:
+            extra += f", slug {item.slug}"
+        print(f"  - [{item.status}] {item.title} ({extra})")
     if not args.apply:
         print("\ndry-run: ничего не создано. Повторите с --apply.")
         return 0
 
+    existing = load_tasks(tasks)
+    existing_refs = {ref for task in existing for ref in task.references}
     created: dict[str, str] = {}
+    skipped = 0
+    failed = 0
     for item in items:
-        created[item.key] = write_task(tasks, item)
+        if (
+            args.from_json is not None
+            and args.dedupe
+            and item.references
+            and any(ref in existing_refs for ref in item.references)
+        ):
+            print(f"  = пропуск (уже импортировано): {item.title[:80]}")
+            skipped += 1
+            continue
+        try:
+            created[item.key] = write_task(tasks, item)
+            existing_refs.update(item.references)
+        except ValueError as error:
+            print(f"  ! {item.key}: {error}")
+            failed += 1
     for item in items:
+        if item.key not in created:
+            continue
         dependencies = [created[dep] for dep in item.deps if dep in created]
         if dependencies:
             link_dependencies(tasks, created[item.key], dependencies)
-    print(f"\nсоздано задач: {len(created)}")
-    return 0
+    print(f"\nсоздано задач: {len(created)}, пропущено: {skipped}, ошибок: {failed}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

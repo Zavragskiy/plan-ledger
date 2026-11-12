@@ -37,6 +37,12 @@ def test_allow_empty(tmp_path):
     assert gate.main(["--project", str(tmp_path), "--allow-empty"]) == 0
 
 
+def test_allow_empty_warns_on_stderr(tmp_path, capsys):
+    (tmp_path / "backlog" / "tasks").mkdir(parents=True)
+    assert gate.main(["--project", str(tmp_path), "--allow-empty"]) == 0
+    assert "--allow-empty" in capsys.readouterr().err
+
+
 def test_stale_done_task(tmp_path, monkeypatch, capsys):
     write_tasks(
         tmp_path,

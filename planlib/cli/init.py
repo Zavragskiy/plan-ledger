@@ -1,10 +1,12 @@
 """`plan-init`: скаффолд состояния плана и конфига раскладки.
 
 Примеры:
-  plan-init                       # состояние в .planlib, dodo.py в корне
-  plan-init --state .             # корневая раскладка (как было)
-  plan-init --config pyproject    # записать [tool.plan-ledger] в pyproject.toml
-  plan-init --dry-run             # показать, что будет создано
+  plan-init                          # состояние в .planlib, задачи в backlog/tasks
+  plan-init --state .                # корневая раскладка (как было)
+  plan-init --config pyproject       # записать [tool.plan-ledger] в pyproject.toml
+  plan-init --with-placeholder       # + задача-заглушка, чтобы первый коммит прошёл гейт
+  plan-init --tasks-base state       # старые раскладки: задачи внутри state
+  plan-init --dry-run                # показать, что будет создано
 """
 
 from __future__ import annotations
@@ -12,7 +14,16 @@ from __future__ import annotations
 import argparse
 import pathlib
 
+from planlib import model
 from planlib.console import enable_utf8
+
+PLACEHOLDER_TITLE = "bootstrap: заменить placeholder реальными задачами"
+PLACEHOLDER_DESCRIPTION = (
+    "Создано `plan-init --with-placeholder`, чтобы пустой план не блокировал "
+    "первый коммит (plan-check без задач — exit 3).\n\n"
+    "Дальше: создайте настоящие задачи (`plan-task new ...`), затем удалите "
+    "этот файл или переведите задачу в Done после прогона приёмки."
+)
 
 DODO_TEMPLATE = '''"""Приёмка шардов плана.
 
@@ -117,11 +128,44 @@ def _update_gitignore(root: pathlib.Path, entries: list[str], dry_run: bool) -> 
     print("  + .gitignore: " + ", ".join(missing))
 
 
+def _placeholder(root: pathlib.Path, tasks_dir: pathlib.Path, dry_run: bool) -> None:
+    """Задача-заглушка: пустой план иначе даёт exit 3 и блокирует первый коммит."""
+    existing = model.load_tasks(tasks_dir)
+    if existing:
+        print(f"  = в плане уже есть задачи ({len(existing)}): placeholder не создаю")
+        return
+    if dry_run:
+        print(f"  + TASK-1 {PLACEHOLDER_TITLE} (placeholder)")
+        return
+    task = model.create(
+        tasks_dir,
+        title=PLACEHOLDER_TITLE,
+        description=PLACEHOLDER_DESCRIPTION,
+        labels=["bootstrap"],
+        slug="bootstrap-placeholder",
+    )
+    try:
+        shown = task.path.relative_to(root).as_posix()
+    except ValueError:
+        shown = str(task.path)
+    print(f"  + {shown} (placeholder)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="plan-init", description=__doc__)
     parser.add_argument("--root", type=pathlib.Path, default=pathlib.Path("."), help="корень кода")
     parser.add_argument("--state", type=pathlib.Path, default=pathlib.Path(".planlib"), help="каталог состояния")
-    parser.add_argument("--tasks", default="backlog/tasks", help="каталог задач внутри состояния")
+    parser.add_argument(
+        "--tasks",
+        default="backlog/tasks",
+        help="каталог задач: относительно корня проекта (по умолчанию) или абсолютный",
+    )
+    parser.add_argument(
+        "--tasks-base",
+        choices=["config", "root", "state"],
+        default="config",
+        help="от чего считать --tasks: корень проекта (config/root) или state",
+    )
     parser.add_argument("--dodo", default="dodo.py", help="dodo-файл внутри корня")
     parser.add_argument("--db", default=".doit.db", help="файл БД внутри состояния")
     parser.add_argument(
@@ -129,6 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--force", action="store_true", help="перезаписать dodo.py и конфиг")
     parser.add_argument("--dry-run", action="store_true", help="ничего не писать")
+    parser.add_argument(
+        "--with-placeholder",
+        action="store_true",
+        help="создать задачу-заглушку, чтобы первый коммит не блокировался пустым планом",
+    )
     enable_utf8()
     args = parser.parse_args(argv)
 
@@ -146,19 +195,34 @@ def main(argv: list[str] | None = None) -> int:
         print("--db должен быть путём внутри каталога состояния")
         return 3
 
-    tasks_dir = state / args.tasks
-    print(f"Раскладка: root={root}, state={state_rel}, tasks={tasks_dir}")
+    tasks_path = pathlib.Path(args.tasks)
+    base_dir = state if args.tasks_base == "state" else root
+    tasks_dir = tasks_path if tasks_path.is_absolute() else base_dir / tasks_path
+    tasks_dir = tasks_dir.resolve()
+    try:
+        shown_tasks = tasks_dir.relative_to(root).as_posix()
+    except ValueError:
+        shown_tasks = str(tasks_dir)
+    print(f"Раскладка: root={root}, state={state_rel}, tasks={shown_tasks}")
     if not args.dry_run:
-        (tasks_dir).mkdir(parents=True, exist_ok=True)
+        # state нужен всегда: в нём лежит БД doit, даже если задачи вынесены в корень.
+        if state != root and not state.exists():
+            state.mkdir(parents=True, exist_ok=True)
+            print(f"  + {state_rel}/")
+        tasks_dir.mkdir(parents=True, exist_ok=True)
         keep = tasks_dir / ".gitkeep"
         if not keep.exists():
             keep.write_text("", encoding="utf-8")
-        print(f"  + {tasks_dir.relative_to(root).as_posix()}/")
+        print(f"  + {shown_tasks}/")
+
+    if args.with_placeholder:
+        _placeholder(root, tasks_dir, args.dry_run)
 
     table = {
         "root": ".",
         "state": state_rel,
         "tasks": args.tasks,
+        "tasks_base": args.tasks_base,
         "dodo": args.dodo,
         "db": args.db,
     }
@@ -172,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     print(
         "\nГотово. Дальше:\n"
-        "  plan-task new \"s1: первый шард\" --ac \"<команда приёмки>\" -l shard:s1\n"
+        "  plan-task new \"s1: первый шард\" --ac \"<команда приёмки>\" --shard s1\n"
         "  plan-run s1\n"
         "  plan-task set task-1 --status Done --check-ac 1 --note \"plan-run s1 — passed\"\n"
         "  plan-check"

@@ -79,12 +79,18 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     if not layout.tasks_exist and not args.allow_empty:
-        print(f"нет каталога задач: {layout.tasks}\nЗапустите `plan-init` или укажите --project/--config.")
+        print(
+            f"нет каталога задач: {layout.tasks}\n"
+            "Запустите `plan-init --with-placeholder` или укажите --project/--config."
+        )
         return 3
 
     data = build(layout)
     if not data["tasks"] and not args.allow_empty:
-        print(f"в плане нет задач: {layout.tasks} (пустой план — не успех; см. plan-init)")
+        print(
+            f"в плане нет задач: {layout.tasks} "
+            "(пустой план — не успех; см. plan-init --with-placeholder)"
+        )
         return 3
 
     if args.json:

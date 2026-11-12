@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 from planlib import acceptance_status, load_tasks
 from planlib.config import (
@@ -64,12 +65,14 @@ def _empty_message(layout: Layout) -> str:
     if not layout.tasks_exist:
         return (
             f"нет каталога задач: {layout.tasks}\n"
-            "Запустите `plan-init` или укажите --project/--config."
+            "Запустите `plan-init --with-placeholder` (или --allow-empty) "
+            "либо укажите --project/--config."
         )
     return (
         f"в плане нет задач: {layout.tasks}\n"
         "Это не «зелёный» результат: задачи не найдены. "
-        "Запустите `plan-init` или проверьте конфиг (--project/--config)."
+        "Запустите `plan-init --with-placeholder`, `plan-check --allow-empty` "
+        "или проверьте конфиг (--project/--config)."
     )
 
 
@@ -91,6 +94,12 @@ def main(argv: list[str] | None = None) -> int:
     if not tasks and not args.allow_empty:
         print(_empty_message(layout))
         return 3
+    if not tasks:
+        print(
+            "предупреждение: пустой план принят по --allow-empty — это не "
+            "подтверждение работы, только обход гейта для bootstrap.",
+            file=sys.stderr,
+        )
 
     rows = collect(layout, tasks)
     stale = [row for row in rows if row["verdict"] == "stale"]

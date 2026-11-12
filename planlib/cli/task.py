@@ -3,8 +3,10 @@
 Раскладка берётся из конфига (plan-ledger.toml / pyproject) или из --project.
 Примеры:
   plan-task list
-  plan-task new "s4: кэш спектров" --ac "pytest tests/test_cache.py" -l shard:s4
+  plan-task new "s4: кэш спектров" --ac "pytest tests/test_cache.py" --shard s4
+  plan-task new "Убрать файловые исключения" --id QUALITY-GATE --slug quality-gate --shard gate
   plan-task set TASK-4 --status "In Progress" --if-status "To Do"
+  plan-task set quality-gate --slug quality-gate-v2        # переименовать файл
   plan-task list --project .planlib
 """
 
@@ -12,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 
 from planlib import model
 from planlib.config import (
@@ -21,6 +24,19 @@ from planlib.config import (
     layout_from_args,
 )
 from planlib.console import enable_utf8
+
+
+SHARD = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _with_shard(labels: list[str], value: str) -> list[str]:
+    name = value.strip()
+    if not SHARD.fullmatch(name):
+        raise ValueError(
+            f"шард {value!r}: одно слово из латиницы, цифр, '.', '_', '-'"
+        )
+    rest = [label for label in labels if not label.startswith("shard:")]
+    return rest + [f"shard:{name}"]
 
 
 def _indices(values: list[str]) -> list[int]:
@@ -69,10 +85,16 @@ def main(argv: list[str] | None = None) -> int:
     new.add_argument("-d", "--description", default="")
     new.add_argument("--ac", action="append", default=[], help="критерий приёмки (можно несколько)")
     new.add_argument("-l", "--label", action="append", default=[])
+    new.add_argument("--shard", help="метка shard:<name>; то же, что -l shard:<name>")
     new.add_argument("--dep", action="append", default=[])
     new.add_argument("--priority", choices=["high", "medium", "low"])
     new.add_argument("--status", default=model.STATUSES[0], choices=model.STATUSES)
     new.add_argument("--owner")
+    new.add_argument("--id", dest="task_id", help="явный id вместо TASK-N (например QUALITY-GATE)")
+    new.add_argument(
+        "--slug",
+        help="имя файла без .md вместо транслитерации заголовка (латиница, цифры, '.', '_', '-')",
+    )
 
     edit = sub.add_parser("set", parents=[sub_flags], help="изменить задачу (CAS через --if-status)")
     edit.add_argument("task_id")
@@ -81,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
     edit.add_argument("--owner")
     edit.add_argument("--priority", choices=["high", "medium", "low"])
     edit.add_argument("--label", action="append", default=[])
+    edit.add_argument("--shard", help="заменить метку shard:<name> (прочие метки не трогает)")
+    edit.add_argument("--slug", help="переименовать файл задачи; пустая строка — снять slug")
     edit.add_argument("--dep", action="append", default=[])
     edit.add_argument("--note", action="append", default=[])
     edit.add_argument("--check-ac", action="append", default=[], metavar="N",
@@ -115,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
                         {
                             "id": task.id,
                             "title": task.title,
+                            "slug": task.slug,
                             "status": task.status,
                             "labels": task.labels,
                             "dependencies": task.dependencies,
@@ -134,17 +159,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "new":
-        task = model.create(
-            tasks,
-            title=args.title,
-            description=args.description,
-            status=args.status,
-            labels=args.label,
-            dependencies=args.dep,
-            acceptance=args.ac,
-            priority=args.priority,
-            owner=args.owner,
-        )
+        labels = list(args.label)
+        try:
+            if args.shard:
+                labels = _with_shard(labels, args.shard)
+            task = model.create(
+                tasks,
+                title=args.title,
+                description=args.description,
+                status=args.status,
+                labels=labels,
+                dependencies=args.dep,
+                acceptance=args.ac,
+                priority=args.priority,
+                owner=args.owner,
+                task_id=args.task_id,
+                slug=args.slug,
+            )
+        except ValueError as error:
+            print(f"отказ: {error}")
+            return 1
         _print_task(task, layout)
         return 0
 
@@ -156,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "id": task.id,
                         "title": task.title,
+                        "slug": task.slug,
                         "status": task.status,
                         "labels": task.labels,
                         "dependencies": task.dependencies,
@@ -188,6 +223,21 @@ def main(argv: list[str] | None = None) -> int:
     for label in args.label:
         if label not in task.labels:
             task.labels.append(label)
+    if args.shard:
+        try:
+            task.labels = _with_shard(task.labels, args.shard)
+        except ValueError as error:
+            print(f"отказ: {error}")
+            return 1
+    if args.slug is not None:
+        slug = args.slug.strip() or None
+        try:
+            if slug:
+                model.validate_slug(slug)
+        except ValueError as error:
+            print(f"отказ: {error}")
+            return 1
+        task.slug = slug
     for dependency in args.dep:
         if dependency not in task.dependencies:
             task.dependencies.append(dependency)
@@ -214,7 +264,11 @@ def main(argv: list[str] | None = None) -> int:
             "(--force, чтобы записать Done всё равно)"
         )
         return 1
-    path = model.save(task, tasks)
+    try:
+        path = model.save(task, tasks)
+    except ValueError as error:
+        print(f"отказ: {error}")
+        return 1
     try:
         shown = path.relative_to(layout.root).as_posix()
     except ValueError:

@@ -41,6 +41,7 @@ def build(tmp_path: pathlib.Path, nested: bool) -> pathlib.Path:
                 'root = "."',
                 'state = ".planlib"',
                 'tasks = "backlog/tasks"',
+                'tasks_base = "state"',
                 f'dodo = "{".planlib/dodo.py" if nested else "dodo.py"}"',
                 'db = ".doit.db"',
                 "",

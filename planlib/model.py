@@ -33,6 +33,7 @@ TRANSLIT = {
 class Task:
     id: str
     title: str
+    slug: str | None = None
     status: str = STATUSES[0]
     labels: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
@@ -80,6 +81,8 @@ class Task:
 
     def to_markdown(self) -> str:
         meta: dict[str, object] = {"id": self.id, "title": self.title, "status": self.status}
+        if self.slug:
+            meta["slug"] = self.slug
         if self.priority:
             meta["priority"] = self.priority
         if self.owner:
@@ -121,6 +124,34 @@ def slugify(title: str) -> str:
     return "-".join(text.split("-")[:6]) or "task"
 
 
+TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+TASK_SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+
+
+def validate_id(task_id: str) -> str:
+    if not TASK_ID.fullmatch(task_id):
+        raise ValueError(
+            f"id {task_id!r}: допустимы латиница, цифры, '.', '_', '-', "
+            "первый символ — буква или цифра"
+        )
+    return task_id
+
+
+def validate_slug(slug: str) -> str:
+    if not TASK_SLUG.fullmatch(slug):
+        raise ValueError(
+            f"slug {slug!r}: допустимы строчные латинские буквы, цифры, '.', '_', '-'"
+        )
+    return slug
+
+
+def file_name(task: Task) -> str:
+    """Имя файла задачи: явный slug — это имя целиком, иначе legacy `id - title`."""
+    if task.slug:
+        return f"{task.slug}.md"
+    return f"{task.id.lower()} - {slugify(task.title)}.md"
+
+
 def parse(path: pathlib.Path) -> Task:
     text = path.read_text(encoding="utf-8")
     match = FRONT_MATTER.match(text)
@@ -149,6 +180,7 @@ def parse(path: pathlib.Path) -> Task:
     return Task(
         id=str(meta.get("id", "")),
         title=str(meta.get("title", "")).strip(),
+        slug=str(meta["slug"]).strip() if meta.get("slug") else None,
         status=str(meta.get("status", STATUSES[0])),
         labels=[str(item) for item in (meta.get("labels") or [])],
         dependencies=[str(item) for item in (meta.get("dependencies") or [])],
@@ -184,7 +216,9 @@ def load_tasks(tasks: pathlib.Path) -> list[Task]:
 def find(tasks: pathlib.Path, task_id: str) -> Task:
     wanted = task_id.lower()
     for task in load_tasks(tasks):
-        if task.id.lower() in {wanted, f"task-{wanted.removeprefix('task-')}"}:
+        by_id = task.id.lower() in {wanted, f"task-{wanted.removeprefix('task-')}"}
+        by_slug = bool(task.slug) and task.slug.lower() == wanted
+        if by_id or by_slug:
             return task
     raise SystemExit(f"задача {task_id} не найдена в {pathlib.Path(tasks)}")
 
@@ -202,12 +236,23 @@ def save(task: Task, tasks: pathlib.Path) -> pathlib.Path:
     root = pathlib.Path(tasks)
     root.mkdir(parents=True, exist_ok=True)
     task.updated = _now()
-    if getattr(task, "path", None) and pathlib.Path(task.path).exists():
-        path = pathlib.Path(task.path)
+    existing = pathlib.Path(task.path) if getattr(task, "path", None) else None
+    if existing is not None and existing.exists() and not task.slug:
+        # Без явного slug файл не переименовывается: правка заголовка не должна
+        # плодить diff «удалил/добавил».
+        path = existing
     else:
-        path = root / f"{task.id.lower()} - {slugify(task.title)}.md"
-        task.path = path  # type: ignore[attr-defined]
-    path.write_text(task.to_markdown(), encoding="utf-8")
+        path = root / file_name(task)
+    if existing is not None and existing.exists() and path.resolve() != existing.resolve():
+        if path.exists():
+            raise ValueError(f"файл {path.name} уже занят другой задачей")
+        path.write_text(task.to_markdown(), encoding="utf-8")
+        existing.unlink()
+    else:
+        if existing is None and path.exists():
+            raise ValueError(f"файл {path.name} уже существует")
+        path.write_text(task.to_markdown(), encoding="utf-8")
+    task.path = path  # type: ignore[attr-defined]
     return path
 
 
@@ -223,10 +268,21 @@ def create(
     owner: str | None = None,
     references: list[str] | None = None,
     check_first: bool | None = None,
+    task_id: str | None = None,
+    slug: str | None = None,
 ) -> Task:
+    if task_id is not None:
+        validate_id(task_id)
+        if any(item.id.lower() == task_id.lower() for item in load_tasks(tasks)):
+            raise ValueError(f"задача с id {task_id} уже есть")
+    if slug is not None:
+        validate_slug(slug)
+        if (pathlib.Path(tasks) / f"{slug}.md").exists():
+            raise ValueError(f"файл {slug}.md уже существует")
     task = Task(
-        id=next_id(tasks),
+        id=task_id or next_id(tasks),
         title=title,
+        slug=slug,
         status=status,
         labels=list(labels or []),
         dependencies=list(dependencies or []),
