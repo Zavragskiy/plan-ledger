@@ -237,3 +237,16 @@ def test_enable_utf8_is_safe_to_call_twice():
     enable_utf8()
     enable_utf8()
     assert sys.stdout is not None
+
+
+def test_check_index_is_validated(tmp_path):
+    import pytest
+
+    tasks_dir = tmp_path / "backlog" / "tasks"
+    task = model.create(tasks_dir, title="one", acceptance=["only"])
+    with pytest.raises(ValueError, match="критерия №2"):
+        task.check(2)
+    with pytest.raises(ValueError, match="критерия №0"):
+        task.uncheck(0)
+    assert task.criteria == {"checked": 0, "total": 1}
+    assert task.unchecked() == [1]

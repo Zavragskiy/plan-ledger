@@ -33,8 +33,12 @@ plan-task set TASK-3 --status "In Progress" --if-status "To Do" --owner "session
 
 ```powershell
 plan-run s3
-plan-task set TASK-3 --status Done --check-ac 1 --note "session 7d23: plan-run s3 — 1 passed"
+plan-task set TASK-3 --status Done --check-ac 1,2,3 --note "session 7d23: plan-run s3 — 1 passed"
 ```
+
+Отмечай критерии, которые реально проверил: `--check-ac 1,2,3` (или повторяй флаг). `Done` без
+отмеченных критериев отвергается; `--force` — только осознанное исключение. Гейт всё равно покажет
+`incomplete`.
 
 `plan-run` — единственный правильный способ прогнать приёмку: он передаёт те же
 `-f/-d/--db-file`, что и `plan-check`. Ручной `doit` без `--db-file` положит БД в корень кода и
@@ -64,7 +68,7 @@ plan-task set TASK-3 --note "session 7d23: что сделано, чем про�
 ## Rules
 
 - Не создавай шард без `shard:<name>` и задачи приёмки в `dodo.py`.
-- Не ставь `Done` без `doit`-подтверждения; гейт всё равно покраснеет.
+- Не ставь `Done` без `plan-run`-подтверждения и без отмеченных критериев приёмки.
 - Один пишущий чат на задачу: `--if-status` плюс `--owner`.
 - Мигрированные исторические задачи (label `migrated`) остаются `unverified` — гейт их не
   блокирует, но приёмки у них нет.

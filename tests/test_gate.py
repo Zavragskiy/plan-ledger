@@ -83,3 +83,55 @@ def test_bad_config_is_exit_3(tmp_path, capsys):
     (tmp_path / "plan-ledger.toml").write_text("[plan-ledger\n", encoding="utf-8")
     assert gate.main(["--project", str(tmp_path)]) == 3
     assert "ошибка конфига" in capsys.readouterr().out
+
+
+def test_done_with_unchecked_criteria_is_incomplete(tmp_path, monkeypatch, capsys):
+    write_tasks(
+        tmp_path,
+        [
+            {
+                "id": "TASK-1",
+                "title": "one",
+                "status": "Done",
+                "labels": ["shard:s1"],
+            }
+        ],
+    )
+    task_file = next((tmp_path / "backlog" / "tasks").glob("*.md"))
+    task_file.write_text(
+        task_file.read_text(encoding="utf-8")
+        + "\n## Acceptance Criteria\n\n- [x] #1 first\n- [ ] #2 second\n- [ ] #3 third\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("up-to-date", ""))
+    assert gate.main(["--project", str(tmp_path)]) == 1
+    output = capsys.readouterr().out
+    assert "НЕПОЛНЫЕ" in output
+    assert "2, 3" in output
+
+
+def test_json_reports_criteria_counts(tmp_path, monkeypatch, capsys):
+    write_tasks(
+        tmp_path,
+        [{"id": "TASK-1", "title": "one", "status": "Done", "labels": ["shard:s1"]}],
+    )
+    task_file = next((tmp_path / "backlog" / "tasks").glob("*.md"))
+    task_file.write_text(
+        task_file.read_text(encoding="utf-8")
+        + "\n## Acceptance Criteria\n\n- [x] #1 first\n- [ ] #2 second\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("up-to-date", ""))
+    assert gate.main(["--project", str(tmp_path), "--json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["rows"][0]["criteria"] == {"checked": 1, "total": 2}
+    assert data["summary"]["incomplete"] == 1
+
+
+def test_done_without_criteria_is_unchanged(tmp_path, monkeypatch):
+    write_tasks(
+        tmp_path,
+        [{"id": "TASK-1", "title": "legacy", "status": "Done", "labels": ["shard:s1"]}],
+    )
+    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("up-to-date", ""))
+    assert gate.main(["--project", str(tmp_path)]) == 0

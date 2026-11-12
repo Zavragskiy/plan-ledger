@@ -38,6 +38,7 @@ def build(layout: Layout) -> dict:
                 "acceptance": state,
                 "detail": detail,
                 "priority": task.priority,
+                "criteria": task.criteria,
             }
         )
     open_rows = [row for row in rows if row["status"] != "Done" and row["ready"]]
@@ -53,6 +54,13 @@ def build(layout: Layout) -> dict:
             "todo": sum(row["status"] == "To Do" for row in rows),
             "blocked": sum(not row["ready"] for row in rows if row["status"] != "Done"),
             "stale": sum(row["acceptance"] in {"run", "error"} for row in rows),
+            "incomplete": sum(
+                1
+                for row in rows
+                if row["status"] == "Done"
+                and row["criteria"]["total"]
+                and row["criteria"]["checked"] < row["criteria"]["total"]
+            ),
         },
     }
 
@@ -84,11 +92,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     print(f"План: {layout.describe()}")
-    print(f"{'task':8} {'status':12} {'ready':6} {'shard':9} {'приёмка':13} title")
+    print(f"{'task':8} {'status':12} {'AC':6} {'ready':6} {'shard':9} {'приёмка':13} title")
     for row in data["tasks"]:
         shard = row["shard"] or "-"
+        criteria = row["criteria"]
+        ac = f"{criteria['checked']}/{criteria['total']}" if criteria["total"] else "-"
         print(
-            f"{row['id']:8} {row['status']:12} {'да' if row['ready'] else 'нет':6} "
+            f"{row['id']:8} {row['status']:12} {ac:6} {'да' if row['ready'] else 'нет':6} "
             f"{shard:9} {row['acceptance']:13} {row['title'][:70]}"
         )
         if row["acceptance"] in {"error", "no-doit", "no-dodo"} and row["detail"]:
@@ -97,7 +107,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"\nвсего {summary['total']}: done {summary['done']}, "
         f"in progress {summary['in_progress']}, to do {summary['todo']}, "
-        f"заблокировано {summary['blocked']}, с неподтверждённой приёмкой {summary['stale']}"
+        f"заблокировано {summary['blocked']}, с неподтверждённой приёмкой {summary['stale']}, "
+        f"с незакрытыми критериями {summary['incomplete']}"
     )
     print(f"СЛЕДУЮЩАЯ: {data['next'] or '— (нет готовых к работе задач)'}")
     return 0

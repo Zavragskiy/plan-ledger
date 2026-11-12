@@ -64,6 +64,9 @@ def build(tmp_path: pathlib.Path, nested: bool) -> pathlib.Path:
         acceptance=["acceptance passes"],
         status="Done",
     )
+    created = model.find(tasks, "TASK-1")
+    created.check(1)
+    model.save(created, tasks)
     return root
 
 

@@ -55,12 +55,28 @@ class Task:
         return None
 
     def check(self, index: int) -> None:
+        self._validate_index(index)
         done, text = self.acceptance[index - 1]
         self.acceptance[index - 1] = (True, text)
 
     def uncheck(self, index: int) -> None:
+        self._validate_index(index)
         done, text = self.acceptance[index - 1]
         self.acceptance[index - 1] = (False, text)
+
+    def _validate_index(self, index: int) -> None:
+        if not 1 <= index <= len(self.acceptance):
+            raise ValueError(f"критерия №{index} нет: в задаче {len(self.acceptance)}")
+
+    @property
+    def criteria(self) -> dict[str, int]:
+        return {
+            "checked": sum(1 for done, _ in self.acceptance if done),
+            "total": len(self.acceptance),
+        }
+
+    def unchecked(self) -> list[int]:
+        return [number for number, (done, _) in enumerate(self.acceptance, 1) if not done]
 
     def to_markdown(self) -> str:
         meta: dict[str, object] = {"id": self.id, "title": self.title, "status": self.status}

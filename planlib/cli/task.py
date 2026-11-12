@@ -23,6 +23,21 @@ from planlib.config import (
 from planlib.console import enable_utf8
 
 
+def _indices(values: list[str]) -> list[int]:
+    """Индексы критериев: `--check-ac 1 --check-ac 2` или `--check-ac 1,2`."""
+    result: list[int] = []
+    for value in values:
+        for part in str(value).split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                result.append(int(part))
+            except ValueError as error:
+                raise SystemExit(f"не число: {part!r}") from error
+    return result
+
+
 def _print_task(task: model.Task, layout: Layout) -> None:
     print(f"{task.id} [{task.status}] {task.title}")
     if task.labels:
@@ -68,9 +83,13 @@ def main(argv: list[str] | None = None) -> int:
     edit.add_argument("--label", action="append", default=[])
     edit.add_argument("--dep", action="append", default=[])
     edit.add_argument("--note", action="append", default=[])
-    edit.add_argument("--check-ac", type=int)
-    edit.add_argument("--uncheck-ac", type=int)
+    edit.add_argument("--check-ac", action="append", default=[], metavar="N",
+                      help="отметить критерий N; можно повторять или через запятую: 1,2,3")
+    edit.add_argument("--uncheck-ac", action="append", default=[], metavar="N",
+                      help="снять отметку с критерия N; можно повторять или через запятую")
     edit.add_argument("--description")
+    edit.add_argument("--force", action="store_true",
+                      help="разрешить Done, даже если отмечены не все критерии")
 
     show = sub.add_parser("show", parents=[sub_flags], help="показать задачу")
     show.add_argument("task_id")
@@ -174,10 +193,27 @@ def main(argv: list[str] | None = None) -> int:
             task.dependencies.append(dependency)
     for note in args.note:
         task.notes.append(note)
-    if args.check_ac:
-        task.check(args.check_ac)
-    if args.uncheck_ac:
-        task.uncheck(args.uncheck_ac)
+    check_indices = _indices(args.check_ac)
+    uncheck_indices = _indices(args.uncheck_ac)
+    for index in check_indices:
+        try:
+            task.check(index)
+        except ValueError as error:
+            print(f"отказ: {error}")
+            return 1
+    for index in uncheck_indices:
+        try:
+            task.uncheck(index)
+        except ValueError as error:
+            print(f"отказ: {error}")
+            return 1
+    if args.status == "Done" and not args.force and task.unchecked():
+        numbers = ", ".join(str(number) for number in task.unchecked())
+        print(
+            f"отказ: у {task.id} не отмечены критерии {numbers} "
+            "(--force, чтобы записать Done всё равно)"
+        )
+        return 1
     path = model.save(task, tasks)
     try:
         shown = path.relative_to(layout.root).as_posix()

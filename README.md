@@ -61,16 +61,33 @@ before or after a subcommand.
 | `plan-init [--state .planlib] [--config pyproject] [--dry-run]` | scaffold state, config, `dodo.py`, `.gitignore` |
 | `plan-task list [--status S] [--json]` | list tasks |
 | `plan-task new TITLE [-d DESC] [--ac …] [-l shard:sN] [--dep ID]` | create a task |
-| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--check-ac N]` | edit, with compare-and-set |
+| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--check-ac N[,N…]] [--force]` | edit, with compare-and-set |
 | `plan-status [--json]` | statuses, readiness, acceptance, next task |
 | `plan-run [SHARD …] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses |
 | `plan-check [--json] [--strict] [--allow-empty]` | gate |
 | `plan-import SOURCE [--apply]` | import `## Phase N` roadmaps and numbered task files |
 | `plan-scrape [--projects DIR] [--out DIR]` | copy local plans into `examples/local/` (gitignored) |
 
-Exit codes of `plan-check` and `plan-status`: `0` clean, `1` stale, `2` strict-unverified
-(`plan-check` only), `3` bad config or empty plan. An empty plan is deliberately **not** a success:
-that was the silent-green failure mode a root-relative layout produced.
+Exit codes of `plan-check` and `plan-status`: `0` clean, `1` stale or incomplete, `2`
+strict-unverified (`plan-check` only), `3` bad config or empty plan. An empty plan is deliberately
+**not** a success: that was the silent-green failure mode a root-relative layout produced.
+
+## Acceptance criteria are enforced
+
+A `Done` task must have every acceptance criterion ticked, and the gate checks that:
+
+```text
+TASK-1   Done   1/3   s1   up-to-date   incomplete
+         └─ не отмечены критерии: 2, 3
+```
+
+- `--check-ac 1,2,3` and repeated `--check-ac 1 --check-ac 2` both work; an out-of-range index is a
+  clean refusal (exit 1), not a traceback.
+- `plan-task set <id> --status Done` refuses while criteria are unchecked; `--force` is the explicit
+  escape hatch.
+- `plan-check --json` rows carry `criteria: {checked, total}`; `plan-status` shows an `AC 2/3` column.
+- Tasks without criteria (imported historical plans) keep working as before: `unverified` under
+  `--strict` only.
 
 ## Workflow
 

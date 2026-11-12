@@ -53,3 +53,102 @@ def test_check_project_flag(tmp_path):
     write_task(tmp_path)
     result = run("planlib.cli.gate", ["--project", str(tmp_path)])
     assert result.returncode == 0, result.stderr
+
+
+def make_criteria_project(tmp_path) -> None:
+    from planlib import model
+
+    model.create(
+        tmp_path / "backlog" / "tasks",
+        title="probe: three criteria",
+        labels=["shard:px"],
+        acceptance=["first", "second", "third"],
+    )
+
+
+def criteria_state(tmp_path) -> list[bool]:
+    from planlib import model
+
+    task = model.load_tasks(tmp_path / "backlog" / "tasks")[0]
+    return [done for done, _ in task.acceptance]
+
+
+def test_repeated_check_ac_ticks_every_index(tmp_path):
+    make_criteria_project(tmp_path)
+    result = run(
+        "planlib.cli.task",
+        ["set", "TASK-1", "--check-ac", "1", "--check-ac", "2", "--check-ac", "3", "--project", str(tmp_path)],
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert criteria_state(tmp_path) == [True, True, True]
+
+
+def test_comma_form_ticks_indices(tmp_path):
+    make_criteria_project(tmp_path)
+    result = run("planlib.cli.task", ["set", "TASK-1", "--check-ac", "1,2", "--project", str(tmp_path)])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert criteria_state(tmp_path) == [True, True, False]
+
+
+def test_out_of_range_is_clean_error_and_file_unchanged(tmp_path):
+    make_criteria_project(tmp_path)
+    result = run("planlib.cli.task", ["set", "TASK-1", "--check-ac", "9", "--project", str(tmp_path)])
+    assert result.returncode == 1
+    assert "критерия №9" in result.stdout
+    assert criteria_state(tmp_path) == [False, False, False]
+
+
+def test_done_refused_while_criteria_unchecked(tmp_path):
+    make_criteria_project(tmp_path)
+    result = run("planlib.cli.task", ["set", "TASK-1", "--status", "Done", "--project", str(tmp_path)])
+    assert result.returncode == 1
+    assert "--force" in result.stdout
+    from planlib import model
+
+    assert model.load_tasks(tmp_path / "backlog" / "tasks")[0].status == "To Do"
+
+
+def test_done_allowed_when_all_criteria_checked(tmp_path):
+    make_criteria_project(tmp_path)
+    result = run(
+        "planlib.cli.task",
+        [
+            "set",
+            "TASK-1",
+            "--status",
+            "Done",
+            "--check-ac",
+            "1,2,3",
+            "--project",
+            str(tmp_path),
+        ],
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    from planlib import model
+
+    task = model.load_tasks(tmp_path / "backlog" / "tasks")[0]
+    assert task.status == "Done"
+    assert task.criteria == {"checked": 3, "total": 3}
+
+
+def test_force_allows_done_with_unchecked_criteria(tmp_path):
+    make_criteria_project(tmp_path)
+    result = run(
+        "planlib.cli.task",
+        ["set", "TASK-1", "--status", "Done", "--force", "--project", str(tmp_path)],
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    from planlib import model
+
+    assert model.load_tasks(tmp_path / "backlog" / "tasks")[0].status == "Done"
+
+
+def test_note_does_not_rewrite_criteria(tmp_path):
+    make_criteria_project(tmp_path)
+    run("planlib.cli.task", ["set", "TASK-1", "--check-ac", "2", "--project", str(tmp_path)])
+    result = run(
+        "planlib.cli.task",
+        ["set", "TASK-1", "--note", "session: checked", "--project", str(tmp_path)],
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert criteria_state(tmp_path) == [False, True, False]
