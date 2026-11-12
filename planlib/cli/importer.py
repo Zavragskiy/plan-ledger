@@ -300,6 +300,19 @@ def finding_labels(item: dict) -> list[str]:
     return list(dict.fromkeys(labels))
 
 
+def _file_slug(path: str, depth: int) -> str:
+    """`--slug-depth N`: slug из последних N сегментов пути (0 — весь путь)."""
+    from planlib import model
+
+    parts = [part for part in re.split(r"[\\/]+", path.strip()) if part]
+    if not parts:
+        return "gate"
+    if depth > 0:
+        parts = parts[-depth:]
+    parts = [*parts[:-1], pathlib.PurePosixPath(parts[-1]).stem or parts[-1]]
+    return "gate-" + model.slugify(" ".join(parts))
+
+
 def _unique_slug(base: str, seen: set[str]) -> str:
     candidate, number = base, 2
     while candidate in seen:
@@ -348,7 +361,12 @@ def _merge_shard(labels: list[str], shard: str | None) -> list[str]:
 
 
 def _grouped_finding(
-    key: str, grouping: str, members: list[dict], shard: str | None, labels: list[str]
+    key: str,
+    grouping: str,
+    members: list[dict],
+    shard: str | None,
+    labels: list[str],
+    slug_depth: int = 0,
 ) -> Imported:
     from planlib import model
 
@@ -369,7 +387,10 @@ def _grouped_finding(
         references.append(finding_reference(item))
         own = _texts(item.get("acceptance") or item.get("ac") or item.get("criteria"))
         acceptance.extend(own or [f"находка устранена: {text}{suffix}"])
-    slug = "gate-" + model.slugify(key) if key else "gate-findings"
+    if grouping == "file":
+        slug = _file_slug(key, slug_depth)
+    else:
+        slug = "gate-" + model.slugify(key) if key else "gate-findings"
     merged = list(dict.fromkeys([*labels, "findings"]))
     return Imported(
         key=f"{grouping}:{key}",
@@ -389,6 +410,7 @@ def from_findings(
     shard: str | None = None,
     grouping: str = "none",
     labels: list[str] | None = None,
+    slug_depth: int = 0,
 ) -> list[Imported]:
     """Находки → задачи: по одной, по файлу или по правилу."""
     if grouping not in JSON_GROUPINGS:
@@ -402,7 +424,7 @@ def from_findings(
         key = _finding_file(item) if grouping == "file" else _finding_rule(item)
         groups.setdefault(key or "прочее", []).append(item)
     items = [
-        _grouped_finding(key, grouping, members, shard, base_labels)
+        _grouped_finding(key, grouping, members, shard, base_labels, slug_depth)
         for key, members in groups.items()
     ]
     seen: set[str] = set()
@@ -479,6 +501,14 @@ def main(argv: list[str] | None = None) -> int:
         default="none",
         help="json: одна задача на находку (none), на файл (file) или на правило (rule)",
     )
+    parser.add_argument(
+        "--slug-depth",
+        type=int,
+        default=0,
+        metavar="N",
+        help="json + --group-by file: slug из последних N сегментов пути "
+        "(1 — имя файла; 0 — весь путь)",
+    )
     parser.add_argument("--label", action="append", default=[], help="json: дополнительная метка")
     parser.add_argument(
         "--dedupe",
@@ -492,6 +522,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if bool(args.source) == bool(args.from_json):
         print("нужен ровно один источник: SOURCE (roadmap/numbered) или --from-json FILE")
+        return 2
+    if args.slug_depth < 0:
+        print("--slug-depth должен быть >= 0")
+        return 2
+    if args.from_json is None and (args.group_by != "none" or args.slug_depth):
+        print("--group-by и --slug-depth работают только с --from-json")
+        return 2
+    if args.slug_depth and args.group_by != "file":
+        print("--slug-depth работает только с --group-by file")
         return 2
 
     try:
@@ -507,7 +546,11 @@ def main(argv: list[str] | None = None) -> int:
             shard = args.shard or _text(meta.get("shard")) or None
             labels = [*args.label, *_texts(meta.get("labels"))]
             items = from_findings(
-                findings, shard=shard, grouping=args.group_by, labels=labels
+                findings,
+                shard=shard,
+                grouping=args.group_by,
+                labels=labels,
+                slug_depth=args.slug_depth,
             )
         except JsonImportError as error:
             print(f"ошибка импорта: {error}")

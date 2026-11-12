@@ -72,16 +72,17 @@ before or after a subcommand.
 | `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--shard NAME] [--slug NAME] [--check-ac N[,N…]] [--force]` | edit, with compare-and-set |
 | `plan-status [--json]` | statuses, readiness, acceptance, next task |
 | `plan-run [SHARD …] [--all] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses |
-| `plan-shard list [--json]` | shards declared in `dodo.py` and the tasks that reference them |
+| `plan-shard list [--strict] [--json]` | shards declared in `dodo.py`, the tasks that reference them, and plan-hygiene violations |
 | `plan-check [--json] [--strict] [--allow-empty]` | gate |
 | `plan-import SOURCE [--apply]` | import `## Phase N` roadmaps and numbered task files |
-| `plan-import --from-json FILE [--apply] [--group-by file\|rule\|none] [--shard NAME]` | turn machine-readable gate findings into tasks |
+| `plan-import --from-json FILE [--apply] [--group-by file\|rule\|none] [--shard NAME] [--slug-depth N]` | turn machine-readable gate findings into tasks |
 | `plan-scrape [--projects DIR] [--out DIR]` | copy local plans into `examples/local/` (gitignored) |
 
 Exit codes of `plan-check` and `plan-status`: `0` clean, `1` stale or incomplete, `2`
 strict-unverified (`plan-check` only), `3` bad config or empty plan. An empty plan is deliberately
 **not** a success: that was the silent-green failure mode a root-relative layout produced. The
 explicit escape hatches are `plan-check --allow-empty` and `plan-init --with-placeholder`.
+`plan-shard list --strict` returns `1` on hygiene violations and `3` when `dodo.py` cannot be read.
 
 ## Acceptance criteria are enforced
 
@@ -123,14 +124,20 @@ plan-task new "Убрать файловые исключения из гейт�
 `plan-run` no longer needs a hand-maintained list of shard names:
 
 ```bash
-plan-run --all          # every shard referenced by a plan task, deduplicated
-plan-shard list         # shards declared in dodo.py + tasks pointing at them
+plan-run --all               # every shard referenced by a plan task, deduplicated
+plan-shard list              # shards declared in dodo.py + tasks pointing at them
+plan-shard list --strict     # exit 1 on hygiene violations (CI gate)
 ```
+
+`plan-run --all` warns on stderr when `dodo.py` declares a shard that no plan task references —
+otherwise a new shard (say `unit`) would silently never run in a CI that relies on `--all`.
 
 `plan-shard list` reads the shard list through `doit list` (so dynamically created tasks count)
 and falls back to parsing `task_*` functions out of `dodo.py` when doit is unavailable. It marks
 tasks that reference a shard missing from `dodo.py` (`(нет в dodo.py)`) and tasks with no
-`shard:` label at all. `--json` output is meant for agents.
+`shard:` label at all. `--strict` turns three hygiene problems into exit 1: a shard without
+tasks, a task without a shard, and a task whose shard is absent from `dodo.py`. `--json` output
+is meant for agents and carries a `violations` list.
 
 ## Bootstrap: an empty plan is not green
 
@@ -153,15 +160,18 @@ hand:
 plan-import --from-json findings.json --shard gate            # dry-run
 plan-import --from-json findings.json --shard gate --apply
 plan-import --from-json findings.json --group-by file --apply # one task per file
+plan-import --from-json findings.json --group-by file --slug-depth 2 --apply
 ```
 
 The report is a list of findings or `{"shard": "gate", "labels": ["audit"], "findings": [...]}`
 (see [`examples/findings.json`](examples/findings.json));
 each finding may carry `title`, `message`, `rule`, `file`, `line`, `description`, `acceptance`
 (list), `labels`, `priority`, `id`, `slug`, `reference`. `--group-by file|rule` creates one task
-per file/rule with every finding as an acceptance criterion. Re-running the same report is
-idempotent: a finding whose `reference` (default `file:line`) is already in a task's `references`
-is skipped.
+per file/rule with every finding as an acceptance criterion. Grouped file tasks get an auto slug
+from the file path (`gate-src-app`); `--slug-depth 2` keeps only the last two path segments
+(`gate-mover-bases-mover-mixins`), `--slug-depth 1` keeps the file name. Re-running the same
+report is idempotent: a finding whose `reference` (default `file:line`) is already in a task's
+`references` is skipped.
 
 ## Workflow
 
@@ -201,6 +211,7 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
 | `planlib/config.py` | layout resolution: config search, overrides, errors |
 | `planlib/model.py` | task model: frontmatter, sections, acceptance, `Blocked`, `owner` |
 | `planlib/acceptance.py` | doit invocation and status: `up-to-date` / `run` / `error` / `unknown` |
+| `planlib/shards.py` | shard discovery: `doit list` with a `task_*` AST fallback |
 | `planlib/cli/` | `task`, `status`, `gate`, `run`, `shard`, `init`, `importer`, `scraper` |
 | `backlog/` | demo project with three shards |
 | `plan-ledger.toml` | this repository's layout (root) |

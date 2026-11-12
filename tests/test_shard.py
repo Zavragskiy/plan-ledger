@@ -7,7 +7,7 @@ import pathlib
 
 import pytest
 
-from planlib import Layout, model
+from planlib import Layout, model, shards
 from planlib.cli import shard as plan_shard
 
 DODO = '''"""acceptance"""
@@ -48,7 +48,7 @@ def seed(layout: Layout) -> None:
 
 
 def offline(monkeypatch) -> None:
-    monkeypatch.setattr(plan_shard, "declared_from_doit", lambda layout: None)
+    monkeypatch.setattr(shards, "declared_from_doit", lambda layout: None)
     monkeypatch.setattr(
         plan_shard,
         "acceptance_status",
@@ -58,7 +58,7 @@ def offline(monkeypatch) -> None:
 
 def test_declared_from_source_reads_task_functions(tmp_path):
     layout = layout_for(tmp_path)
-    assert plan_shard.declared_from_source(layout) == ["s1", "s2"]
+    assert shards.declared_from_source(layout) == ["s1", "s2"]
 
 
 def test_build_links_tasks_and_flags_unknown_shards(tmp_path, monkeypatch):
@@ -107,9 +107,45 @@ def test_broken_dodo_is_exit_3(tmp_path, monkeypatch, capsys):
     layout = layout_for(tmp_path)
     layout.dodo.write_text("def task_s1(:\n", encoding="utf-8")
     monkeypatch.setattr(plan_shard, "layout_from_args", lambda args: layout)
-    monkeypatch.setattr(plan_shard, "declared_from_doit", lambda layout: None)
+    monkeypatch.setattr(shards, "declared_from_doit", lambda layout: None)
     assert plan_shard.main(["list"]) == 3
     assert "dodo.py" in capsys.readouterr().out
+
+
+def test_strict_lists_hygiene_violations(tmp_path, monkeypatch, capsys):
+    layout = layout_for(tmp_path)
+    seed(layout)
+    offline(monkeypatch)
+    monkeypatch.setattr(plan_shard, "layout_from_args", lambda args: layout)
+
+    assert plan_shard.main(["list", "--strict"]) == 1
+    output = capsys.readouterr().out
+    assert "НАРУШЕНИЯ ГИГИЕНЫ" in output
+    assert "шард s2: нет ни одной задачи" in output
+    assert "шард nosuch" in output
+    assert "TASK-4: нет метки shard" in output
+
+
+def test_strict_clean_plan_is_zero(tmp_path, monkeypatch):
+    layout = layout_for(tmp_path)
+    model.create(layout.tasks, title="one", labels=["shard:s1"])
+    model.create(layout.tasks, title="two", labels=["shard:s2"])
+    offline(monkeypatch)
+    monkeypatch.setattr(plan_shard, "layout_from_args", lambda args: layout)
+
+    assert plan_shard.main(["list", "--strict"]) == 0
+
+
+def test_strict_json_returns_exit_1_and_reports_violations(tmp_path, monkeypatch, capsys):
+    layout = layout_for(tmp_path)
+    seed(layout)
+    offline(monkeypatch)
+    monkeypatch.setattr(plan_shard, "layout_from_args", lambda args: layout)
+
+    assert plan_shard.main(["list", "--strict", "--json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    kinds = {violation["kind"] for violation in data["violations"]}
+    assert kinds == {"empty-shard", "unknown-shard", "unlinked-task"}
 
 
 def test_missing_dodo_is_exit_3(tmp_path, monkeypatch, capsys):

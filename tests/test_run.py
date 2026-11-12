@@ -96,6 +96,27 @@ def test_all_with_explicit_shard_is_refused(tmp_path, monkeypatch, capsys):
     assert "--all" in capsys.readouterr().out
 
 
+def test_all_warns_about_dodo_shards_without_tasks(tmp_path, monkeypatch, capsys):
+    from planlib import model
+
+    layout = layout_for(tmp_path)
+    model.create(layout.tasks, title="one", labels=["shard:s1"])
+    monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
+    monkeypatch.setattr("planlib.cli.run.declared", lambda layout: (["s1", "unit"], "ast"))
+    monkeypatch.setattr("planlib.cli.run.doit_executable", lambda layout: "doit")
+    monkeypatch.setattr(
+        "planlib.cli.run.run",
+        lambda layout, action, *tasks: types.SimpleNamespace(
+            returncode=0, stdout="", stderr=""
+        ),
+    )
+
+    assert plan_run.main(["--all"]) == 0
+    captured = capsys.readouterr()
+    assert "unit" in captured.err
+    assert "plan-run --all" in captured.err
+
+
 def test_all_without_shards_is_exit_1(tmp_path, monkeypatch, capsys):
     from planlib import model
 

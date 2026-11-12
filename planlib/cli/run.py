@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from planlib import load_tasks
 from planlib.config import (
@@ -20,6 +21,7 @@ from planlib.config import (
 )
 from planlib.console import enable_utf8
 from planlib.doit_cli import command, doit_executable, run
+from planlib.shards import declared
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,6 +59,21 @@ def main(argv: list[str] | None = None) -> int:
     if not layout.dodo.is_file():
         print(f"нет dodo-файла: {layout.dodo}")
         return 3
+
+    if args.all:
+        try:
+            names, _ = declared(layout)
+        except (OSError, SyntaxError):
+            names = []
+        unused = [name for name in names if name not in set(args.shards)]
+        if unused:
+            print(
+                "предупреждение: в dodo.py есть шарды без задач: "
+                + ", ".join(unused)
+                + " — plan-run --all их не запускает",
+                file=sys.stderr,
+            )
+
     executable = doit_executable(layout)
     if executable is None:
         print("doit не найден: установите его в окружение plan-ledger")

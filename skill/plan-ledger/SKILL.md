@@ -48,6 +48,10 @@ plan-task set TASK-3 --status Done --check-ac 1,2,3 --note "session 7d23: plan-r
 `Done` ставится только после успешной приёмки. Задача без метки `shard:<name>` приёмкой не
 покрыта — либо добавь задачу в `dodo.py`, либо оставь `In Progress`.
 
+`plan-run --all` предупреждает в stderr, если в `dodo.py` есть шард, на который не ссылается ни
+одна задача: такой шард в `--all` не попадёт. Гигиену плана держит `plan-shard list --strict`
+(exit 1: шард без задачи, задача без шарда, шард отсутствует в `dodo.py`).
+
 ## Gate (перед коммитом/выходом)
 
 ```powershell
@@ -78,4 +82,6 @@ plan-task set TASK-3 --note "session 7d23: что сделано, чем про�
   блокирует, но приёмки у них нет.
 - Новая раскладка — `plan-init`; на пустом репозитории с хуком — `plan-init --with-placeholder`,
   иначе первый коммит блокируется exit 3.
-- Находки гейта не переписывай руками: `plan-import --from-json findings.json --shard gate --apply`.
+- Находки гейта не переписывай руками: `plan-import --from-json findings.json --shard gate --apply`;
+  длинные slug'и сокращай `--slug-depth 2`.
+- `plan-shard list --strict` — гигиена плана в CI, а не только локальная привычка.

@@ -41,6 +41,8 @@ jobs:
         run: poetry run doit
       - name: Plan gate
         run: poetry run plan-check
+      - name: Plan hygiene
+        run: poetry run plan-shard list --strict
 
   build:
     name: build wheel

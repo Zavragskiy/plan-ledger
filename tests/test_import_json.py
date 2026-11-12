@@ -93,8 +93,99 @@ def test_group_by_file_creates_one_task_per_file(tmp_path):
     app_task = next(task for task in created if "app.py" in task.title)
     assert len(app_task.acceptance) == 2
     assert app_task.shard == "gate"
-    assert [task.slug for task in created] == ["gate-src-app-py", "gate-src-util-py"]
+    assert [task.slug for task in created] == ["gate-src-app", "gate-src-util"]
     assert "src/app.py:12" in app_task.references
+
+
+NESTED = [
+    {
+        "file": "app/mover_modules/mover_bases/mover_mixins.py",
+        "line": 1,
+        "rule": "C901",
+        "message": "a",
+    },
+    {
+        "file": "app/other/mover_mixins.py",
+        "line": 2,
+        "rule": "C901",
+        "message": "b",
+    },
+]
+
+
+def test_slug_depth_takes_last_segments(tmp_path):
+    path = report(tmp_path, NESTED)
+    assert (
+        importer.main(
+            [
+                "--from-json",
+                str(path),
+                "--project",
+                str(tmp_path),
+                "--apply",
+                "--group-by",
+                "file",
+                "--slug-depth",
+                "2",
+            ]
+        )
+        == 0
+    )
+    assert [task.slug for task in tasks(tmp_path)] == [
+        "gate-mover-bases-mover-mixins",
+        "gate-other-mover-mixins",
+    ]
+
+
+def test_slug_depth_one_uses_basename_and_dedupes(tmp_path):
+    path = report(tmp_path, NESTED)
+    assert (
+        importer.main(
+            [
+                "--from-json",
+                str(path),
+                "--project",
+                str(tmp_path),
+                "--apply",
+                "--group-by",
+                "file",
+                "--slug-depth",
+                "1",
+            ]
+        )
+        == 0
+    )
+    assert sorted(task.slug for task in tasks(tmp_path)) == [
+        "gate-mover-mixins",
+        "gate-mover-mixins-2",
+    ]
+
+
+def test_slug_depth_requires_file_grouping(tmp_path, capsys):
+    path = report(tmp_path, NESTED)
+    assert (
+        importer.main(
+            ["--from-json", str(path), "--project", str(tmp_path), "--slug-depth", "2"]
+        )
+        == 2
+    )
+    assert "--group-by file" in capsys.readouterr().out
+
+
+def test_json_only_flags_need_from_json(tmp_path, capsys):
+    roadmap = tmp_path / "roadmap.md"
+    roadmap.write_text("## Phase 1: Setup\n", encoding="utf-8")
+    assert importer.main([str(roadmap), "--project", str(tmp_path), "--group-by", "file"]) == 2
+    assert "--from-json" in capsys.readouterr().out
+
+
+def test_negative_slug_depth_is_refused(tmp_path, capsys):
+    path = report(tmp_path, NESTED)
+    assert (
+        importer.main(["--from-json", str(path), "--project", str(tmp_path), "--slug-depth", "-1"])
+        == 2
+    )
+    assert "--slug-depth" in capsys.readouterr().out
 
 
 def test_wrapper_object_sets_shard_and_labels(tmp_path):
