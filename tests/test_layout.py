@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import pathlib
-import subprocess
-import sys
 
 import pytest
 
-from planlib import model, resolve
-from planlib.acceptance import doit_executable
-from planlib.cli import gate
+from planlib import model
+from planlib.cli import gate, run as plan_run
 
 DODO = '''"""acceptance for layout test"""
 
@@ -71,20 +67,9 @@ def build(tmp_path: pathlib.Path, nested: bool) -> pathlib.Path:
     return root
 
 
-def run_acceptance(root: pathlib.Path) -> None:
-    layout = resolve(start=root)
-    executable = doit_executable(layout)
-    assert executable, "doit должен быть установлен в тестовом окружении"
-    result = subprocess.run(
-        [executable, "-f", str(layout.dodo), "-d", str(layout.root), "s1"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+def run_acceptance() -> None:
+    """Приёмка запускается тем же plan-run, что и в реальном workflow."""
+    assert plan_run.main(["s1", "--quiet"]) == 0
 
 
 @pytest.mark.parametrize("nested", [False, True], ids=["dodo-in-root", "dodo-in-state"])
@@ -94,7 +79,7 @@ def test_gate_uses_config_and_relative_paths(tmp_path, monkeypatch, capsys, nest
 
     assert gate.main([]) == 1, "до прогона приёмки Done-задача обязана быть stale"
 
-    run_acceptance(root)
+    run_acceptance()
     capsys.readouterr()
     assert gate.main([]) == 0
 

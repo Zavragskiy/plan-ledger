@@ -32,9 +32,13 @@ plan-task set TASK-3 --status "In Progress" --if-status "To Do" --owner "session
 ## Verify (перед Done)
 
 ```powershell
-poetry run doit s3
-plan-task set TASK-3 --status Done --check-ac 1 --note "session 7d23: doit s3 — 1 passed"
+plan-run s3
+plan-task set TASK-3 --status Done --check-ac 1 --note "session 7d23: plan-run s3 — 1 passed"
 ```
+
+`plan-run` — единственный правильный способ прогнать приёмку: он передаёт те же
+`-f/-d/--db-file`, что и `plan-check`. Ручной `doit` без `--db-file` положит БД в корень кода и
+гейт покажет «изменились» все файлы.
 
 `Done` ставится только после успешной приёмки. Задача без метки `shard:<name>` приёмкой не
 покрыта — либо добавь задачу в `dodo.py`, либо оставь `In Progress`.
@@ -46,7 +50,8 @@ plan-check            # 0 — чисто, 1 — протухло, 3 — конф
 ```
 
 `stale` = задача Done, но файлы шарда изменились после приёмки (пути печатаются относительно
-корня). Лечится повторным `doit <shard>` или понижением статуса, если правка откатила работу.
+корня, длинный список обрезается до 10 с «… и ещё N»). Лечится повторным `plan-run <shard>` или
+понижением статуса, если правка откатила работу.
 
 ## Close (конец чата)
 

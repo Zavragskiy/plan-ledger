@@ -30,7 +30,7 @@ def fake_run(monkeypatch, stdout: str = "", stderr: str = "", returncode: int = 
         calls.append((command, kwargs))
         return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
 
-    monkeypatch.setattr("planlib.acceptance.subprocess.run", runner)
+    monkeypatch.setattr("planlib.doit_cli.subprocess.run", runner)
     return calls
 
 
@@ -87,3 +87,31 @@ def test_doit_executable_prefers_project_venv(tmp_path):
     venv_doit.parent.mkdir(parents=True)
     venv_doit.write_text("", encoding="utf-8")
     assert doit_executable(layout) == str(venv_doit)
+
+
+def test_long_changed_list_is_truncated(tmp_path, monkeypatch):
+    layout = layout_for(tmp_path)
+    lines = "".join(f"    - src/f{index}.py\n" for index in range(250))
+    stdout = (
+        "status     : run\n"
+        " * The following file dependencies have changed:\n" + lines
+    )
+    fake_run(monkeypatch, stdout=stdout)
+    state, detail = acceptance_status(layout, "s1")
+    assert state == "run"
+    assert "src/f0.py" in detail
+    assert "src/f10.py" not in detail
+    assert "… и ещё 240" in detail
+
+
+def test_missing_list_is_truncated_too(tmp_path, monkeypatch):
+    layout = layout_for(tmp_path)
+    lines = "".join(f"    - src/g{index}.py\n" for index in range(20))
+    stdout = (
+        "status     : error\n"
+        " * The following file dependencies are missing:\n" + lines
+    )
+    fake_run(monkeypatch, stdout=stdout)
+    state, detail = acceptance_status(layout, "s1")
+    assert state == "error"
+    assert "… и ещё 10" in detail

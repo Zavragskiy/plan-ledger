@@ -117,8 +117,8 @@ def test_ready_blocks_on_unknown_dependency(tmp_path):
 
 
 def test_acceptance_without_doit(tmp_path, monkeypatch):
-    monkeypatch.setattr("planlib.acceptance.sys.executable", str(tmp_path / "python"))
-    monkeypatch.setattr("planlib.acceptance.shutil.which", lambda name: None)
+    monkeypatch.setattr("planlib.doit_cli.sys.executable", str(tmp_path / "python"))
+    monkeypatch.setattr("planlib.doit_cli.shutil.which", lambda name: None)
     layout = make_layout(tmp_path)
     layout.dodo.write_text("", encoding="utf-8")
     state, _ = acceptance_status(layout, "s1")

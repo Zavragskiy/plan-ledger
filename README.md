@@ -63,6 +63,7 @@ before or after a subcommand.
 | `plan-task new TITLE [-d DESC] [--ac …] [-l shard:sN] [--dep ID]` | create a task |
 | `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--check-ac N]` | edit, with compare-and-set |
 | `plan-status [--json]` | statuses, readiness, acceptance, next task |
+| `plan-run [SHARD …] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses |
 | `plan-check [--json] [--strict] [--allow-empty]` | gate |
 | `plan-import SOURCE [--apply]` | import `## Phase N` roadmaps and numbered task files |
 | `plan-scrape [--projects DIR] [--out DIR]` | copy local plans into `examples/local/` (gitignored) |
@@ -77,8 +78,8 @@ that was the silent-green failure mode a root-relative layout produced.
 plan-init                                   # once: .planlib + config + dodo.py
 plan-status
 plan-task set TASK-3 --status "In Progress" --if-status "To Do"
-poetry run doit s3
-plan-task set TASK-3 --status Done --check-ac 1 --note "doit s3 — passed"
+plan-run s3                                 # exactly what plan-check will verify
+plan-task set TASK-3 --status Done --check-ac 1 --note "plan-run s3 — passed"
 plan-check
 ```
 
@@ -87,16 +88,18 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
 
 ## doit: what matters
 
+- Run acceptance through `plan-run`: it passes the same `-f <dodo> -d <root> --db-file <db>` that
+  `plan-check` uses, so "I ran it" and "it is verified" cannot diverge. A bare
+  `doit -f .planlib/dodo.py -d . s1` without `--db-file` writes `.doit.db` into the code root, and
+  the gate then reports every source file as changed.
 - `doit -d` is a **directory**, not the database. The database is `--db-file` or
-  `DOIT_CONFIG["dep_file"]`.
+  `DOIT_CONFIG["dep_file"]`; `plan-init` pins `dep_file` next to the state.
 - doit changes its working directory to the dodo file's directory, so relative `file_dep` resolve
-  against it. plan-ledger always invokes
-  `doit -f <dodo> -d <root> info --db-file <db> <shard>`, which makes relative paths resolve against
-  the code root even when `dodo.py` sits in `.planlib/`.
-- A command run by hand needs the same `-d`: `doit -f .planlib/dodo.py -d . s1`.
+  against it. plan-ledger always passes `-d <root>`, which makes relative paths resolve against the
+  code root even when `dodo.py` sits in `.planlib/`.
 - Subprocess actions inherit doit's cwd; pin it explicitly: `CmdAction(..., cwd=str(ROOT))`.
-- `plan-init` generates absolute `file_dep` computed from the dodo location and an absolute
-  `dep_file`, so the database never lands in the code root.
+- Stale dependency lists are truncated to 10 paths (`… и ещё N`); raise with
+  `PLAN_LEDGER_MAX_LISTED`.
 
 ## Layout of this repository
 

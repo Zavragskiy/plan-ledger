@@ -8,8 +8,8 @@
   выбранной задачи, `session_search "<slug>"` — для прошлых решений.
 - **Take:** `plan-task set <id> --status "In Progress" --if-status "To Do"` — compare-and-set;
   чужая сессия сдвинула статус → команда падает, ничего не меняя.
-- **Evidence:** `Done` только после `poetry run doit <shard>`; в том же коммите — `--check-ac N` и
-  `--note "session <id>: <команда> → <результат>"`.
+- **Evidence:** `Done` только после `plan-run <shard>`; в том же коммите — `--check-ac N` и
+  `--note "session <id>: plan-run <shard> → <результат>"`.
 - **Gate:** `plan-check` в pre-commit; `stale` (Done с изменившимися файлами) — блокер, а пустой
   план даёт exit 3, а не «зелено».
 - **Close:** `--note` с итогом и блокерами; «что дальше» живёт в статусах и `next`, не в чате.

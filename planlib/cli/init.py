@@ -20,6 +20,9 @@ DODO_TEMPLATE = '''"""Приёмка шардов плана.
 * file_dep собираются от ROOT (абсолютные пути на момент запуска);
 * у каждой команды явно задан cwd=ROOT, иначе pytest/git унаследуют каталог dodo.
 БД лежит рядом с состоянием: {db_path!r}.
+
+Запускайте приёмку через `plan-run <shard>`: он передаёт те же -f/-d/--db-file,
+что и `plan-check`. Ручной `doit` без `--db-file` положит БД в корень кода.
 """
 
 from __future__ import annotations
@@ -170,8 +173,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "\nГотово. Дальше:\n"
         "  plan-task new \"s1: первый шард\" --ac \"<команда приёмки>\" -l shard:s1\n"
-        "  poetry run doit s1\n"
-        "  plan-task set task-1 --status Done --check-ac 1 --note \"doit s1 — passed\"\n"
+        "  plan-run s1\n"
+        "  plan-task set task-1 --status Done --check-ac 1 --note \"plan-run s1 — passed\"\n"
         "  plan-check"
     )
     return 0
