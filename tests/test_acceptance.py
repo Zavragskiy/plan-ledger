@@ -79,6 +79,35 @@ def test_unknown_task(tmp_path, monkeypatch):
     assert acceptance_status(layout, "s9")[0] == "unknown"
 
 
+def test_missing_shard_traceback_is_clean_unknown(tmp_path, monkeypatch):
+    layout = layout_for(tmp_path)
+    stderr = (
+        "Traceback (most recent call last):\n"
+        '  File "dodo.py", line 12, in <module>\n'
+        "    task = loader[shard]\n"
+        "KeyError: 'px'\n"
+    )
+    fake_run(monkeypatch, stderr=stderr, returncode=1)
+    state, detail = acceptance_status(layout, "px")
+    assert state == "unknown"
+    assert "KeyError: 'px'" in detail
+    assert "Traceback" not in detail
+    assert "File " not in detail
+
+
+def test_dodo_bug_traceback_is_clean_error(tmp_path, monkeypatch):
+    layout = layout_for(tmp_path)
+    stderr = (
+        "Traceback (most recent call last):\n"
+        '  File "dodo.py", line 3, in <module>\n'
+        "ValueError: boom\n"
+    )
+    fake_run(monkeypatch, stderr=stderr, returncode=1)
+    state, detail = acceptance_status(layout, "s1")
+    assert state == "error"
+    assert detail == "doit: ValueError: boom"
+
+
 def test_doit_executable_prefers_project_venv(tmp_path):
     layout = layout_for(tmp_path)
     venv_doit = tmp_path / ".venv" / ("Scripts" if __import__("os").name == "nt" else "bin") / (

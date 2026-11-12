@@ -117,6 +117,8 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
 - Subprocess actions inherit doit's cwd; pin it explicitly: `CmdAction(..., cwd=str(ROOT))`.
 - Stale dependency lists are truncated to 10 paths (`… и ещё N`); raise with
   `PLAN_LEDGER_MAX_LISTED`.
+- A failing acceptance prints one error line (`ValueError: …`, `ERROR: …`) instead of a traceback
+  tail; a shard missing from `dodo.py` is reported as `unknown`, not as a crash.
 
 ## Layout of this repository
 

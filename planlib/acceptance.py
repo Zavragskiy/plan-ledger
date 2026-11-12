@@ -16,6 +16,8 @@ from .doit_cli import doit_executable, run as run_doit
 
 CHANGED = re.compile(r"The following file dependencies have changed:\s*\n((?:\s*-\s*.+\n?)+)")
 MISSING = re.compile(r"The following file dependencies are missing:\s*\n((?:\s*-\s*.+\n?)+)")
+TRACEBACK = re.compile(r"Traceback \(most recent call last\)")
+EXCEPTION = re.compile(r"^([A-Za-z_][\w.]*(?:Error|Exception)):\s*(.+)$", re.M)
 DEFAULT_MAX_LISTED = 10
 
 
@@ -52,6 +54,19 @@ def _listed(
     return f"{label}: {shown}"
 
 
+def _error_line(output: str) -> str:
+    """Одна строка ошибки вместо хвоста трассировки."""
+    exceptions = EXCEPTION.findall(output)
+    if exceptions:
+        kind, message = exceptions[-1]
+        return f"{kind}: {message}"[:200]
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if line.upper().startswith("ERROR:"):
+            return line[:200]
+    return lines[-1][:200] if lines else ""
+
+
 def acceptance_status(layout: Layout, shard: str) -> tuple[str, str]:
     """(up-to-date | run | error | unknown | no-doit | no-dodo, подробность)."""
     if not layout.dodo.is_file():
@@ -68,9 +83,14 @@ def acceptance_status(layout: Layout, shard: str) -> tuple[str, str]:
     changed = _listed(CHANGED, output, layout.root, "изменились")
     if changed is not None:
         return "run", changed
+    where = _relative(layout.root, str(layout.dodo))
     if re.search(r"Unknown task|Task not found|Invalid parameter", output, re.I):
-        return "unknown", f"приёмка '{shard}' не найдена в {_relative(layout.root, str(layout.dodo))}"
+        return "unknown", f"приёмка '{shard}' не найдена в {where}"
     if result.returncode != 0:
-        tail = " ".join(output.split())[-200:]
-        return "error", tail or f"doit завершился с кодом {result.returncode}"
+        detail = _error_line(output) or f"doit завершился с кодом {result.returncode}"
+        exceptions = EXCEPTION.findall(output)
+        if TRACEBACK.search(output) and exceptions and exceptions[-1][0] == "KeyError":
+            if shard.strip("'\"") in exceptions[-1][1]:
+                return "unknown", f"приёмка '{shard}' отсутствует в {where}: {detail}"
+        return "error", f"doit: {detail}"
     return "run", ""
