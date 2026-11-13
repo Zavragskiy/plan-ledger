@@ -120,7 +120,8 @@ def _write_dodo(
 def _update_gitignore(root: pathlib.Path, entries: list[str], dry_run: bool) -> None:
     target = root / ".gitignore"
     existing = target.read_text(encoding="utf-8") if target.is_file() else ""
-    missing = [entry for entry in entries if entry not in existing.splitlines()]
+    lines = existing.splitlines()
+    missing = [entry for entry in entries if not _ignored(entry, lines)]
     if not missing:
         print("  = .gitignore: already contains the required lines")
         return
@@ -129,6 +130,20 @@ def _update_gitignore(root: pathlib.Path, entries: list[str], dry_run: bool) -> 
     if not dry_run:
         target.write_text(text, encoding="utf-8")
     print("  + .gitignore: " + ", ".join(missing))
+
+
+def _ignored(entry: str, lines: list[str]) -> bool:
+    """True when an existing line already covers ``entry``.
+
+    The exact `<db>*` entry stays exact, but the cache entry is covered by any
+    of the common spellings the project may already have.
+    """
+    stripped = {line.strip() for line in lines}
+    if entry in stripped:
+        return True
+    if entry != "__pycache__/":
+        return False
+    return bool(stripped & {"**/__pycache__", "__pycache__", "__pycache__/"})
 
 
 def _placeholder(root: pathlib.Path, tasks_dir: pathlib.Path, dry_run: bool) -> None:
@@ -211,9 +226,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Layout: root={root}, state={state_rel}, tasks={shown_tasks}")
     if not args.dry_run:
         # state нужен всегда: в нём лежит БД doit, даже если задачи вынесены в корень.
-        if state != root and not state.exists():
-            state.mkdir(parents=True, exist_ok=True)
-            print(f"  + {state_rel}/")
+        if state != root:
+            if not state.exists():
+                state.mkdir(parents=True, exist_ok=True)
+                print(f"  + {state_rel}/")
+            # Пустой каталог не переживает clone; .gitkeep делает state отслеживаемым.
+            state_keep = state / ".gitkeep"
+            if not state_keep.exists():
+                state_keep.write_text("", encoding="utf-8")
         tasks_dir.mkdir(parents=True, exist_ok=True)
         keep = tasks_dir / ".gitkeep"
         if not keep.exists():

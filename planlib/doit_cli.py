@@ -49,6 +49,9 @@ def run(layout: Layout, action: str, *tasks: str) -> subprocess.CompletedProcess
     executable = doit_executable(layout)
     if executable is None:
         raise FileNotFoundError("doit not found: install it into the plan-ledger environment")
+    # Каталог состояния может отсутствовать в свежем clone (пустая папка не
+    # коммитится); doit не создаёт родителя для --db-file.
+    layout.db.parent.mkdir(parents=True, exist_ok=True)
     return subprocess.run(
         command(layout, executable, action, *tasks),
         cwd=layout.root,

@@ -107,6 +107,17 @@ def test_state_dir_is_created_for_doit_db(tmp_path, monkeypatch):
     plan_init.main([])
     # задачи вынесены в корень, но БД doit живёт в state — каталог обязан существовать
     assert (tmp_path / ".planlib").is_dir()
+    # пустой каталог не переживает clone: keep-file делает state отслеживаемым
+    assert (tmp_path / ".planlib" / ".gitkeep").is_file()
+
+
+def test_existing_glob_cache_ignore_is_not_duplicated(tmp_path, monkeypatch):
+    (tmp_path / ".gitignore").write_text("**/__pycache__\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert plan_init.main([]) == 0
+    text = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    assert text.count("__pycache__") == 1
+    assert ".planlib/.doit.db*" in text
 
 
 def test_acceptance_runs_right_after_init(tmp_path, monkeypatch):
@@ -115,6 +126,19 @@ def test_acceptance_runs_right_after_init(tmp_path, monkeypatch):
     from planlib.cli import run as plan_run
 
     assert plan_run.main(["--quiet"]) == 0
+
+
+def test_acceptance_recreates_missing_state_dir(tmp_path, monkeypatch):
+    """A fresh clone has no empty state dir; the first doit call must recreate it."""
+    monkeypatch.chdir(tmp_path)
+    plan_init.main([])
+    import shutil
+
+    shutil.rmtree(tmp_path / ".planlib")
+    from planlib.cli import run as plan_run
+
+    assert plan_run.main(["--quiet"]) == 0
+    assert (tmp_path / ".planlib").is_dir()
 
 
 def test_state_outside_root_is_error(tmp_path, monkeypatch, capsys):
