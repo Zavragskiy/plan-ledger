@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 
-from planlib import acceptance_status, clear_cache, load_tasks
+from planlib import acceptance_detail, acceptance_state, clear_cache, load_tasks
 from planlib.config import (
     Layout,
     LayoutError,
@@ -19,7 +19,7 @@ from planlib.config import (
 )
 from planlib.console import enable_utf8
 from planlib.model import sort_key
-from planlib.verdicts import classify, detail_for
+from planlib.verdicts import classify, detail_for, needs_detail
 
 
 def collect(layout: Layout, tasks, with_detail: bool = False) -> list[dict]:
@@ -27,10 +27,13 @@ def collect(layout: Layout, tasks, with_detail: bool = False) -> list[dict]:
     rows: list[dict] = []
     for task in sorted(tasks, key=sort_key):
         if task.shard:
-            state, state_detail = acceptance_status(layout, task.shard)
+            state = acceptance_state(layout, task.shard)
+            verdict = classify(task, state)
+            detail = ""
+            if needs_detail(task, state, verdict, with_detail):
+                detail = acceptance_detail(layout, task.shard)
         else:
-            state, state_detail = "no-acceptance", ""
-        verdict = classify(task, state)
+            state, verdict, detail = "no-acceptance", classify(task, "no-acceptance"), ""
         rows.append(
             {
                 "id": task.id,
@@ -38,7 +41,7 @@ def collect(layout: Layout, tasks, with_detail: bool = False) -> list[dict]:
                 "status": task.status,
                 "shard": task.shard,
                 "acceptance": state,
-                "detail": detail_for(task, state, state_detail, verdict, with_detail),
+                "detail": detail_for(task, state, detail, verdict, with_detail),
                 "verdict": verdict,
                 "criteria": task.criteria,
             }

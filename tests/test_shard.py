@@ -51,9 +51,10 @@ def offline(monkeypatch) -> None:
     monkeypatch.setattr(shards, "declared_from_doit", lambda layout: None)
     monkeypatch.setattr(
         plan_shard,
-        "acceptance_status",
-        lambda layout, shard: ("up-to-date", "") if shard == "s1" else ("run", ""),
+        "acceptance_state",
+        lambda layout, shard: "up-to-date" if shard == "s1" else "run",
     )
+    monkeypatch.setattr(plan_shard, "acceptance_detail", lambda layout, shard: "")
 
 
 def test_declared_from_source_reads_task_functions(tmp_path):

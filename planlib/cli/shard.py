@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from planlib import acceptance_status, clear_cache, load_tasks
+from planlib import acceptance_detail, acceptance_state, clear_cache, load_tasks
 from planlib.config import (
     Layout,
     LayoutError,
@@ -34,7 +34,8 @@ def build(layout: Layout) -> dict:
 
     rows: list[dict] = []
     for name in names:
-        state, detail = acceptance_status(layout, name)
+        state = acceptance_state(layout, name)
+        detail = "" if state == "up-to-date" else acceptance_detail(layout, name)
         rows.append(
             {
                 "name": name,

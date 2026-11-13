@@ -24,6 +24,26 @@ def test_numeric_ids_sort_as_numbers():
     ]
 
 
+def test_custom_ids_with_numeric_segments_sort_naturally():
+    """Ид вида D2-SCAN-PLAN — тот же натуральный порядок, а не строковый."""
+    tasks = [make("D11-SIM"), make("D10-LIVE"), make("D2-SCAN-PLAN"), make("X-CUSTOM")]
+    assert [task.id for task in sorted(tasks, key=model.sort_key)] == [
+        "D2-SCAN-PLAN",
+        "D10-LIVE",
+        "D11-SIM",
+        "X-CUSTOM",
+    ]
+
+
+def test_task_and_custom_ids_stay_deterministic():
+    tasks = [make("TASK-10"), make("D2-SCAN-PLAN"), make("TASK-2")]
+    assert [task.id for task in sorted(tasks, key=model.sort_key)] == [
+        "D2-SCAN-PLAN",
+        "TASK-2",
+        "TASK-10",
+    ]
+
+
 def test_in_progress_then_priority_then_id():
     tasks = [
         make("TASK-1", "Done"),
@@ -51,8 +71,9 @@ def test_next_respects_priority(tmp_path, monkeypatch):
         priority="high",
     )
     monkeypatch.setattr(
-        "planlib.cli.status.acceptance_status", lambda layout, shard: ("up-to-date", "")
+        "planlib.cli.status.acceptance_state", lambda layout, shard: "up-to-date"
     )
+    monkeypatch.setattr("planlib.cli.status.acceptance_detail", lambda layout, shard: "")
     data = plan_status.build(_layout(tmp_path, tasks_dir))
     assert data["next"] == "TASK-2", "high-задача важнее меньшего id"
     assert [row["id"] for row in data["tasks"]] == ["TASK-2", "TASK-1"]

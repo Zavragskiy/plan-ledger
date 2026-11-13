@@ -92,12 +92,16 @@ def compact_detail(detail: str, limit: int = COMPACT_LISTED) -> str:
     return text
 
 
+_BATCH_CODES = {"U": "up-to-date", "R": "run", "E": "error"}
+_STATUS_LINE = re.compile(r"^([A-Z])\s+(\S+)\s*$")
 _CACHE: dict[tuple[str, str, int, str], tuple[str, str]] = {}
+_BATCH: dict[tuple[str, str, int], dict[str, str] | None] = {}
 
 
 def clear_cache() -> None:
     """Забыть закэшированные состояния (тесты и долгоживущие процессы)."""
     _CACHE.clear()
+    _BATCH.clear()
 
 
 def _db_stamp(path: pathlib.Path) -> int:
@@ -121,20 +125,69 @@ def _db_stamp(path: pathlib.Path) -> int:
     return stamp
 
 
+def _scope(layout: Layout) -> tuple[str, str, int]:
+    return (str(layout.dodo), str(layout.db), _db_stamp(layout.db))
+
+
+def _batch_states(layout: Layout) -> dict[str, str] | None:
+    """Все статусы шардов одним ``doit list --status``; None, если так нельзя.
+
+    ``doit info`` принимает ровно один шард, ``list --status`` печатает U/R/E
+    для всего ``dodo.py`` за один процесс. План из тридцати шардов стоит один
+    вызов, а ``info`` остаётся только для шардов, которым нужна подробность.
+    """
+    key = _scope(layout)
+    if key in _BATCH:
+        return _BATCH[key]
+    states: dict[str, str] | None = None
+    if layout.dodo.is_file() and doit_executable(layout) is not None:
+        result = run_doit(layout, "list", "--status")
+        if result.returncode == 0:
+            parsed: dict[str, str] = {}
+            for line in (result.stdout or "").splitlines():
+                match = _STATUS_LINE.match(line.strip())
+                if match and match.group(1) in _BATCH_CODES:
+                    parsed[match.group(2)] = _BATCH_CODES[match.group(1)]
+            states = parsed or None
+    _BATCH[key] = states
+    return states
+
+
+def _info(layout: Layout, shard: str) -> tuple[str, str]:
+    key = (*_scope(layout), shard)
+    if key not in _CACHE:
+        _CACHE[key] = _acceptance_status(layout, shard)
+    return _CACHE[key]
+
+
+def acceptance_state(layout: Layout, shard: str) -> str:
+    """Состояние шарда без подробности: из батча, иначе из ``doit info``."""
+    if not layout.dodo.is_file():
+        return "no-dodo"
+    if doit_executable(layout) is None:
+        return "no-doit"
+    states = _batch_states(layout)
+    if states is not None and shard in states:
+        return states[shard]
+    return _info(layout, shard)[0]
+
+
+def acceptance_detail(layout: Layout, shard: str) -> str:
+    """Подробность (``changed: …``) через ``doit info``; кэшируется с состоянием."""
+    return _info(layout, shard)[1]
+
+
 def acceptance_status(layout: Layout, shard: str) -> tuple[str, str]:
     """(up-to-date | run | error | unknown | no-doit | no-dodo, подробность).
 
-    Один ``doit info`` на пару (dodo, БД, шард) за процесс: план из N задач на
-    M шардах стоит M подпроцессов, а не N. Ключ включает mtime БД, поэтому
-    ``plan-run`` в том же процессе виден сразу.
+    Совместимый вход: ``up-to-date`` разрешается из батча без ``doit info``;
+    для остальных состояний вызывается ``info``, потому что подробность —
+    единственное, что даёт именно он.
     """
-    key = (str(layout.dodo), str(layout.db), _db_stamp(layout.db), shard)
-    cached = _CACHE.get(key)
-    if cached is not None:
-        return cached
-    result = _acceptance_status(layout, shard)
-    _CACHE[key] = result
-    return result
+    state = acceptance_state(layout, shard)
+    if state == "up-to-date":
+        return "up-to-date", ""
+    return _info(layout, shard)
 
 
 def _acceptance_status(layout: Layout, shard: str) -> tuple[str, str]:

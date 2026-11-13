@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from planlib import acceptance_status, clear_cache, load_tasks, ready
+from planlib import acceptance_detail, acceptance_state, clear_cache, load_tasks, ready
 from planlib.config import (
     Layout,
     LayoutError,
@@ -22,7 +22,7 @@ from planlib.config import (
 )
 from planlib.console import enable_utf8
 from planlib.model import sort_key
-from planlib.verdicts import ERROR_STATES, classify, detail_for
+from planlib.verdicts import ERROR_STATES, classify, detail_for, needs_detail
 
 PRIORITY_SHORT = {"high": "high", "medium": "med", "low": "low"}
 
@@ -32,10 +32,14 @@ def build(layout: Layout, with_detail: bool = False) -> dict:
     by_id = {task.id: task for task in tasks}
     rows = []
     for task in tasks:
-        state, state_detail = (
-            acceptance_status(layout, task.shard) if task.shard else ("no-acceptance", "")
-        )
-        verdict = classify(task, state)
+        if task.shard:
+            state = acceptance_state(layout, task.shard)
+            verdict = classify(task, state)
+            detail = ""
+            if needs_detail(task, state, verdict, with_detail):
+                detail = acceptance_detail(layout, task.shard)
+        else:
+            state, verdict, detail = "no-acceptance", classify(task, "no-acceptance"), ""
         rows.append(
             {
                 "id": task.id,
@@ -45,7 +49,7 @@ def build(layout: Layout, with_detail: bool = False) -> dict:
                 "dependencies": task.dependencies,
                 "shard": task.shard,
                 "acceptance": state,
-                "detail": detail_for(task, state, state_detail, verdict, with_detail),
+                "detail": detail_for(task, state, detail, verdict, with_detail),
                 "verdict": verdict,
                 "priority": task.priority,
                 "criteria": task.criteria,

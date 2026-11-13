@@ -1,6 +1,13 @@
 """Общая библиотека плана: конфиг, модель задач, детерминированная приёмка."""
 
-from .acceptance import acceptance_status, clear_cache, compact_detail, doit_executable
+from .acceptance import (
+    acceptance_detail,
+    acceptance_state,
+    acceptance_status,
+    clear_cache,
+    compact_detail,
+    doit_executable,
+)
 from .config import Layout, LayoutError, resolve
 from .model import (
     STATUSES,
@@ -18,6 +25,8 @@ __all__ = [
     "Layout",
     "LayoutError",
     "Task",
+    "acceptance_detail",
+    "acceptance_state",
     "acceptance_status",
     "clear_cache",
     "compact_detail",

@@ -11,6 +11,11 @@ from planlib.cli import gate as plan_gate
 from planlib.cli import status as plan_status
 
 
+def fake_acceptance(monkeypatch, state: str, detail: str = "", module: str = "planlib.cli.status") -> None:
+    monkeypatch.setattr(f"{module}.acceptance_state", lambda layout, shard: state)
+    monkeypatch.setattr(f"{module}.acceptance_detail", lambda layout, shard: detail)
+
+
 def write_tasks(tmp_path: pathlib.Path, tasks: list[dict]) -> pathlib.Path:
     tasks_dir = tmp_path / "backlog" / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
@@ -34,13 +39,15 @@ def done_task(task_id: str, shard: str = "s1") -> dict:
 
 
 def test_stale_means_the_same_in_status_and_gate(tmp_path, monkeypatch, capsys):
-    write_tasks(tmp_path, [done_task("TASK-1"), {"id": "TASK-2", "title": "open", "status": "To Do", "labels": ["shard:s2"]}])
-    monkeypatch.setattr(
-        "planlib.cli.status.acceptance_status", lambda layout, shard: ("run", "changed: a.py")
+    write_tasks(
+        tmp_path,
+        [
+            done_task("TASK-1"),
+            {"id": "TASK-2", "title": "open", "status": "To Do", "labels": ["shard:s2"]},
+        ],
     )
-    monkeypatch.setattr(
-        "planlib.cli.gate.acceptance_status", lambda layout, shard: ("run", "changed: a.py")
-    )
+    fake_acceptance(monkeypatch, "run", "changed: a.py")
+    fake_acceptance(monkeypatch, "run", "changed: a.py", module="planlib.cli.gate")
 
     assert plan_status.main(["--project", str(tmp_path), "--json"]) == 0
     status_data = json.loads(capsys.readouterr().out)
@@ -61,9 +68,7 @@ def test_open_hides_done_but_keeps_totals(tmp_path, monkeypatch, capsys):
             {"id": "TASK-2", "title": "open one", "status": "To Do", "labels": ["shard:s2"]},
         ],
     )
-    monkeypatch.setattr(
-        "planlib.cli.status.acceptance_status", lambda layout, shard: ("up-to-date", "")
-    )
+    fake_acceptance(monkeypatch, "up-to-date")
     assert plan_status.main(["--project", str(tmp_path), "--json", "--open"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert [row["id"] for row in data["tasks"]] == ["TASK-2"]
@@ -90,9 +95,7 @@ def test_priority_column(tmp_path, monkeypatch, capsys):
             }
         ],
     )
-    monkeypatch.setattr(
-        "planlib.cli.status.acceptance_status", lambda layout, shard: ("up-to-date", "")
-    )
+    fake_acceptance(monkeypatch, "up-to-date")
     assert plan_status.main(["--project", str(tmp_path)]) == 0
     text = capsys.readouterr().out
     assert "prio" in text.splitlines()[1]
@@ -102,9 +105,7 @@ def test_priority_column(tmp_path, monkeypatch, capsys):
 def test_detail_is_bounded_by_default(tmp_path, monkeypatch, capsys):
     write_tasks(tmp_path, [done_task("TASK-1")])
     long_detail = "changed: " + ", ".join(f"src/f{index}.py" for index in range(346))
-    monkeypatch.setattr(
-        "planlib.cli.status.acceptance_status", lambda layout, shard: ("run", long_detail)
-    )
+    fake_acceptance(monkeypatch, "run", long_detail)
     assert plan_status.main(["--project", str(tmp_path), "--json"]) == 0
     row = json.loads(capsys.readouterr().out)["tasks"][0]
     assert "src/f0.py" in row["detail"]
@@ -115,9 +116,7 @@ def test_detail_is_bounded_by_default(tmp_path, monkeypatch, capsys):
 def test_with_detail_restores_the_full_list(tmp_path, monkeypatch, capsys):
     write_tasks(tmp_path, [done_task("TASK-1")])
     long_detail = "changed: " + ", ".join(f"src/f{index}.py" for index in range(346))
-    monkeypatch.setattr(
-        "planlib.cli.status.acceptance_status", lambda layout, shard: ("run", long_detail)
-    )
+    fake_acceptance(monkeypatch, "run", long_detail)
     assert plan_status.main(["--project", str(tmp_path), "--json", "--with-detail"]) == 0
     row = json.loads(capsys.readouterr().out)["tasks"][0]
     assert "src/f345.py" in row["detail"]
@@ -132,10 +131,14 @@ def test_open_task_detail_is_noise_but_errors_are_kept(tmp_path, monkeypatch, ca
         ],
     )
 
-    def fake(layout, shard):
-        return ("run", "changed: a.py") if shard == "s1" else ("error", "doit: ValueError: boom")
+    def fake_state(layout, shard):
+        return "run" if shard == "s1" else "error"
 
-    monkeypatch.setattr("planlib.cli.status.acceptance_status", fake)
+    def fake_detail(layout, shard):
+        return "changed: a.py" if shard == "s1" else "doit: ValueError: boom"
+
+    monkeypatch.setattr("planlib.cli.status.acceptance_state", fake_state)
+    monkeypatch.setattr("planlib.cli.status.acceptance_detail", fake_detail)
     assert plan_status.main(["--project", str(tmp_path), "--json"]) == 0
     rows = {row["id"]: row for row in json.loads(capsys.readouterr().out)["tasks"]}
     assert rows["TASK-1"]["detail"] is None

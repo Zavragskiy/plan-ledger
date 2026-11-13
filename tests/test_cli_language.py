@@ -34,8 +34,9 @@ def test_gate_stale_section_is_english(tmp_path, monkeypatch, capsys):
     created.status = "Done"
     created.check(1)
     model.save(created, tmp_path / "backlog" / "tasks")
+    monkeypatch.setattr(gate, "acceptance_state", lambda layout, shard: "run")
     monkeypatch.setattr(
-        gate, "acceptance_status", lambda layout, shard: ("run", "changed: src/app.py")
+        gate, "acceptance_detail", lambda layout, shard: "changed: src/app.py"
     )
 
     assert gate.main([]) == 1

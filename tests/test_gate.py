@@ -11,6 +11,11 @@ import yaml
 from planlib.cli import gate
 
 
+def fake_acceptance(monkeypatch, state: str, detail: str = "") -> None:
+    monkeypatch.setattr("planlib.cli.gate.acceptance_state", lambda layout, shard: state)
+    monkeypatch.setattr("planlib.cli.gate.acceptance_detail", lambda layout, shard: detail)
+
+
 def write_tasks(tmp_path: pathlib.Path, tasks: list[dict]) -> pathlib.Path:
     tasks_dir = tmp_path / "backlog" / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
@@ -48,7 +53,7 @@ def test_stale_done_task(tmp_path, monkeypatch, capsys):
         tmp_path,
         [{"id": "TASK-1", "title": "one", "status": "Done", "labels": ["shard:s1"]}],
     )
-    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("run", "changed: src/a.py"))
+    fake_acceptance(monkeypatch, "run", "changed: src/a.py")
     assert gate.main(["--project", str(tmp_path)]) == 1
     output = capsys.readouterr().out
     assert "STALE" in output
@@ -60,7 +65,7 @@ def test_error_acceptance_counts_as_stale(tmp_path, monkeypatch):
         tmp_path,
         [{"id": "TASK-1", "title": "one", "status": "Done", "labels": ["shard:s1"]}],
     )
-    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("error", "files missing"))
+    fake_acceptance(monkeypatch, "error", "files missing")
     assert gate.main(["--project", str(tmp_path)]) == 1
 
 
@@ -69,7 +74,7 @@ def test_ok_when_up_to_date(tmp_path, monkeypatch):
         tmp_path,
         [{"id": "TASK-1", "title": "one", "status": "Done", "labels": ["shard:s1"]}],
     )
-    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("up-to-date", ""))
+    fake_acceptance(monkeypatch, "up-to-date")
     assert gate.main(["--project", str(tmp_path)]) == 0
 
 
@@ -78,7 +83,7 @@ def test_json_includes_layout(tmp_path, monkeypatch, capsys):
         tmp_path,
         [{"id": "TASK-1", "title": "one", "status": "Done", "labels": ["shard:s1"]}],
     )
-    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("up-to-date", ""))
+    fake_acceptance(monkeypatch, "up-to-date")
     assert gate.main(["--project", str(tmp_path), "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["layout"]["root"] == str(tmp_path)
@@ -109,7 +114,7 @@ def test_done_with_unchecked_criteria_is_incomplete(tmp_path, monkeypatch, capsy
         + "\n## Acceptance Criteria\n\n- [x] #1 first\n- [ ] #2 second\n- [ ] #3 third\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("up-to-date", ""))
+    fake_acceptance(monkeypatch, "up-to-date")
     assert gate.main(["--project", str(tmp_path)]) == 1
     output = capsys.readouterr().out
     assert "INCOMPLETE" in output
@@ -127,7 +132,7 @@ def test_json_reports_criteria_counts(tmp_path, monkeypatch, capsys):
         + "\n## Acceptance Criteria\n\n- [x] #1 first\n- [ ] #2 second\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("up-to-date", ""))
+    fake_acceptance(monkeypatch, "up-to-date")
     assert gate.main(["--project", str(tmp_path), "--json"]) == 1
     data = json.loads(capsys.readouterr().out)
     assert data["rows"][0]["criteria"] == {"checked": 1, "total": 2}
@@ -139,5 +144,5 @@ def test_done_without_criteria_is_unchanged(tmp_path, monkeypatch):
         tmp_path,
         [{"id": "TASK-1", "title": "legacy", "status": "Done", "labels": ["shard:s1"]}],
     )
-    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("up-to-date", ""))
+    fake_acceptance(monkeypatch, "up-to-date")
     assert gate.main(["--project", str(tmp_path)]) == 0

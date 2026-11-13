@@ -18,7 +18,7 @@ doit acceptance ─┘   plan-check    → is every "Done" actually proven?
 ```bash
 poetry add --editable /path/to/plan-ledger   # development
 # or
-poetry build && poetry add dist/plan_ledger-0.4.2-py3-none-any.whl
+poetry build && poetry add dist/plan_ledger-0.4.3-py3-none-any.whl
 ```
 
 Python `>=3.10`; dependencies `pyyaml`, `doit`, and `tomli` on 3.10.
@@ -88,9 +88,10 @@ layout produced. The explicit escape hatches are `plan-check --allow-empty` and
 ## Ordering, stale, and the detail budget
 
 One ordering contract is shared by `plan-status`, `plan-task list` and (later) `plan-digest`:
-`In Progress` first, then `priority` (`high` → `medium` → `low` → none), then a natural id — `TASK-8`
-before `TASK-13`, and `TASK-13` before `TASK-1000`. String comparison of ids was a bug: it picked
-`NEXT: TASK-13` over `TASK-8`.
+`In Progress` first, then `priority` (`high` → `medium` → `low` → none), then a natural id — every
+numeric segment compares as a number, so `TASK-8` < `TASK-13` < `TASK-1000` and
+`D2-SCAN-PLAN` < `D10-LIVE`; ids without digits keep a deterministic text order. String comparison
+of ids was a bug: it picked `NEXT: TASK-13` over `TASK-8`.
 
 `stale` has one definition: a `Done` task whose shard acceptance is not confirmed. An **open** task
 with changed inputs was never proven, so it is reported as `not confirmed`, not stale —
@@ -244,9 +245,11 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
 ## Limits
 
 - `.doit.db` is local, so on CI every acceptance reads `run`; the gate checks freshness there.
-- Acceptance status is memoised per `(db, shard)` within one command, so a 100-task plan on two
-  shards costs two `doit info` calls, not 100. The cache is reset per command, so file edits and
-  `plan-run` are always visible.
+- `plan-status`, `plan-check` and `plan-shard list` ask `doit` once per command: `doit list --status`
+  reports U/R/E for every shard in one process, and `doit info` is called only for shards whose row
+  needs a detail (stale or error). N tasks on M shards cost 1 + (shards that need a detail), not M.
+  The state is cached per `(db, shard)` within the command and reset by the DB mtime, so `plan-run`
+  and file edits stay visible.
 - 0.4.2 behaviour change: `plan-run --all` also runs `dodo.py` shards that no task references
   (previously skipped with a warning), and `plan-status --json` gained `verdict`, `unconfirmed`
   and `hidden_done` keys.

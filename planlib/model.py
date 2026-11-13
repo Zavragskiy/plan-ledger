@@ -312,21 +312,28 @@ def ready(task: Task, by_id: dict[str, Task]) -> bool:
 
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 STATUS_ORDER = {"In Progress": 0, "To Do": 1, "Blocked": 1, "Done": 2}
-_NUMERIC_ID = re.compile(r"([A-Za-z]+)-(\d+)")
+_ID_CHUNK = re.compile(r"\d+|\D+")
 
 
-def _id_key(task_id: str) -> tuple[int, str, int]:
-    match = _NUMERIC_ID.fullmatch(task_id)
-    if match:
-        return (0, match.group(1).upper(), int(match.group(2)))
-    return (1, task_id.upper(), 0)
+def _id_key(task_id: str) -> tuple[tuple[int, int, str], ...]:
+    """Натуральный id: текстовые и числовые куски, числа сравниваются числами.
+
+    ``TASK-8 < TASK-13 < TASK-1000`` и ``D2-SCAN-PLAN < D10-LIVE``; id без
+    цифр остаются в детерминированном текстовом порядке.
+    """
+    chunks: list[tuple[int, int, str]] = []
+    for chunk in _ID_CHUNK.findall(task_id.upper()):
+        if chunk.isdigit():
+            chunks.append((0, int(chunk), ""))
+        else:
+            chunks.append((1, 0, chunk))
+    return tuple(chunks)
 
 
-def sort_key(task: Task) -> tuple[int, int, tuple[int, str, int]]:
+def sort_key(task: Task) -> tuple[int, int, tuple[tuple[int, int, str], ...]]:
     """Порядок отображения: In Progress, приоритет, натуральный id.
 
-    ``TASK-8`` идёт раньше ``TASK-13`` (числовое сравнение), ``TASK-1000`` —
-    после ``TASK-13``. Один ключ для plan-status, plan-task list и digest.
+    Один ключ для plan-status, plan-task list, plan-check и digest.
     """
     return (
         STATUS_ORDER.get(task.status, 1),

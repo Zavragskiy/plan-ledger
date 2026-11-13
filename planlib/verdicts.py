@@ -27,6 +27,20 @@ def classify(task: Task, acceptance: str) -> str:
     return "stale"
 
 
+def needs_detail(
+    task: Task,
+    acceptance: str,
+    verdict: str,
+    with_detail: bool = False,
+) -> bool:
+    """Нужна ли ``acceptance_detail`` (лишний ``doit info``) для этой строки."""
+    if with_detail:
+        return True
+    if verdict in {"stale", "incomplete"}:
+        return acceptance != "up-to-date"
+    return acceptance in ERROR_STATES
+
+
 def detail_for(
     task: Task,
     acceptance: str,
