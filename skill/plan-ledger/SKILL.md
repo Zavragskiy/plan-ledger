@@ -13,13 +13,17 @@ description: Use when a task spans many sessions and must stay current without J
 
 ```powershell
 plan-task list
-plan-status --json
+plan-status --json        # --open — без Done-строк; счётчики всё равно по всему плану
 plan-shard list      # какие шарды есть в dodo.py и какие задачи на них ссылаются
 ```
 
 Читай `plan-status` целиком (~20 строк), а не план-документ. В план-документ (`docs/tasks/...`)
 заглядывай только в разделы, названные в шагах выбранной задачи. `session_search "<задача>"` —
 если нужны решения из прошлых чатов. Пустой план — это exit 3, а не «всё готово».
+
+Порядок строк один для `plan-status` и `plan-task list`: `In Progress`, затем `priority`
+(`high` → `medium` → `low`), затем натуральный id (`TASK-8` раньше `TASK-13`, `TASK-1000` после
+`TASK-13`). `NEXT` — первая готовая открытая задача в этом порядке.
 
 ## Take (взял шард)
 
@@ -33,7 +37,7 @@ plan-task set TASK-3 --status "In Progress" --if-status "To Do" --owner "session
 ## Verify (перед Done)
 
 ```powershell
-plan-run --all        # все шарды из задач плана; или явно: plan-run s3
+plan-run --all        # все шарды из dodo.py (плюс шарды, на которые ссылается план)
 plan-task set TASK-3 --status Done --check-ac 1,2,3 --note "session 7d23: plan-run s3 — 1 passed"
 ```
 
@@ -48,9 +52,10 @@ plan-task set TASK-3 --status Done --check-ac 1,2,3 --note "session 7d23: plan-r
 `Done` ставится только после успешной приёмки. Задача без метки `shard:<name>` приёмкой не
 покрыта — либо добавь задачу в `dodo.py`, либо оставь `In Progress`.
 
-`plan-run --all` предупреждает в stderr, если в `dodo.py` есть шард, на который не ссылается ни
-одна задача: такой шард в `--all` не попадёт. Гигиену плана держит `plan-shard list --strict`
-(exit 1: шард без задачи, задача без шарда, шард отсутствует в `dodo.py`).
+`plan-run --all` берёт покрытие из `dodo.py`: шард без задач всё равно прогоняется, а в stderr
+предупреждает «dodo.py shards without plan tasks: …». Раньше такой шард молча пропускался, и
+удаление последней задачи шарда выключало проверку в CI. Гигиену плана держит
+`plan-shard list --strict` (exit 1: шард без задачи, задача без шарда, шард отсутствует в `dodo.py`).
 
 ## Gate (перед коммитом/выходом)
 
@@ -59,8 +64,9 @@ plan-check            # 0 — чисто, 1 — протухло, 3 — конф
 ```
 
 `stale` = задача Done, но файлы шарда изменились после приёмки (пути печатаются относительно
-корня, длинный список обрезается до 10 с «… и ещё N»). Лечится повторным `plan-run <shard>` или
-понижением статуса, если правка откатила работу.
+корня; по умолчанию первые три и «(+N more)», полный список — `--with-detail`). Открытая задача с
+изменившимися входами — `not confirmed`, а не stale: у неё приёмка ещё не подтверждалась.
+Лечится повторным `plan-run <shard>` или понижением статуса, если правка откатила работу.
 
 ## Close (конец чата)
 

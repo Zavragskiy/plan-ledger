@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 
-from planlib import acceptance_status, load_tasks
+from planlib import acceptance_status, clear_cache, load_tasks
 from planlib.config import (
     Layout,
     LayoutError,
@@ -18,34 +18,19 @@ from planlib.config import (
     layout_from_args,
 )
 from planlib.console import enable_utf8
+from planlib.model import sort_key
+from planlib.verdicts import classify, detail_for
 
 
-def collect(layout: Layout, tasks) -> list[dict]:
+def collect(layout: Layout, tasks, with_detail: bool = False) -> list[dict]:
+    """Вердикты задач; тот же ``classify``/``detail_for``, что у plan-status."""
     rows: list[dict] = []
-    for task in tasks:
+    for task in sorted(tasks, key=sort_key):
         if task.shard:
             state, state_detail = acceptance_status(layout, task.shard)
         else:
-            state, state_detail = "no-acceptance", "the task has no shard:<name> label"
-        criteria = task.criteria
-        unchecked = task.unchecked()
-        detail = state_detail
-        if task.status == "Done":
-            if criteria["total"] and unchecked:
-                verdict = "incomplete"
-                detail = "unchecked criteria: " + ", ".join(str(number) for number in unchecked)
-                if state != "up-to-date":
-                    detail += f"; acceptance {state}"
-                    if state_detail:
-                        detail += f" ({state_detail})"
-            elif state == "up-to-date":
-                verdict = "ok"
-            elif state == "no-acceptance":
-                verdict = "unverified"
-            else:
-                verdict = "stale"
-        else:
-            verdict = "open"
+            state, state_detail = "no-acceptance", ""
+        verdict = classify(task, state)
         rows.append(
             {
                 "id": task.id,
@@ -53,9 +38,9 @@ def collect(layout: Layout, tasks) -> list[dict]:
                 "status": task.status,
                 "shard": task.shard,
                 "acceptance": state,
-                "detail": detail,
+                "detail": detail_for(task, state, state_detail, verdict, with_detail),
                 "verdict": verdict,
-                "criteria": criteria,
+                "criteria": task.criteria,
             }
         )
     return rows
@@ -80,9 +65,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, parents=[layout_arguments_parent()])
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--strict", action="store_true", help="also fail on unverified Done tasks")
+    parser.add_argument(
+        "--with-detail",
+        action="store_true",
+        help="print the full acceptance detail instead of the first three paths",
+    )
     parser.add_argument("--allow-empty", action="store_true", help="an empty plan is not an error")
     enable_utf8()
     args = parser.parse_args(argv)
+    clear_cache()  # кэш живёт один вызов команды, а не процесс целиком
 
     try:
         layout = layout_from_args(args)
@@ -101,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    rows = collect(layout, tasks)
+    rows = collect(layout, tasks, args.with_detail)
     stale = [row for row in rows if row["verdict"] == "stale"]
     incomplete = [row for row in rows if row["verdict"] == "incomplete"]
     unverified = [row for row in rows if row["verdict"] == "unverified"]

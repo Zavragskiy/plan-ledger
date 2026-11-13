@@ -68,7 +68,7 @@ def test_missing_dodo_is_exit_3(tmp_path, monkeypatch, capsys):
     assert "no dodo file" in capsys.readouterr().out
 
 
-def test_all_runs_distinct_shards_from_plan(tmp_path, monkeypatch):
+def test_all_runs_dodo_shards_then_plan_extras(tmp_path, monkeypatch):
     from planlib import model
 
     layout = layout_for(tmp_path)
@@ -86,7 +86,9 @@ def test_all_runs_distinct_shards_from_plan(tmp_path, monkeypatch):
     monkeypatch.setattr("planlib.cli.run.run", fake_run)
 
     assert plan_run.main(["--all"]) == 0
-    assert seen["tasks"] == ("s2", "s1"), "шарды без повторов, в порядке появления в плане"
+    assert seen["tasks"] == ("s1", "s2"), (
+        "сначала шарды dodo.py, затем шарды только из плана; без повторов"
+    )
 
 
 def test_all_with_explicit_shard_is_refused(tmp_path, monkeypatch, capsys):
@@ -117,14 +119,36 @@ def test_all_warns_about_dodo_shards_without_tasks(tmp_path, monkeypatch, capsys
     assert "plan-run --all" in captured.err
 
 
-def test_all_without_shards_is_exit_1(tmp_path, monkeypatch, capsys):
+def test_all_runs_dodo_shards_even_without_plan_tasks(tmp_path, monkeypatch, capsys):
+    """Покрытие из dodo.py: шард без задач всё равно прогоняется."""
     from planlib import model
 
     layout = layout_for(tmp_path)
     model.create(layout.tasks, title="without shard")
+    seen: dict[str, tuple[str, ...]] = {}
+
+    def fake_run(layout_arg, action, *tasks):
+        seen["tasks"] = tasks
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
+    monkeypatch.setattr("planlib.cli.run.doit_executable", lambda layout: "doit")
+    monkeypatch.setattr("planlib.cli.run.run", fake_run)
+
+    assert plan_run.main(["--all"]) == 0
+    assert seen["tasks"] == ("s1",), "шард dodo.py без задач всё равно в прогоне"
+    assert "runs them anyway" in capsys.readouterr().err
+
+
+def test_all_without_any_shards_is_exit_1(tmp_path, monkeypatch, capsys):
+    from planlib import model
+
+    layout = layout_for(tmp_path)
+    layout.dodo.write_text("VALUE = 1\n", encoding="utf-8")
+    model.create(layout.tasks, title="without shard")
     monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
     assert plan_run.main(["--all"]) == 1
-    assert "shard:<name>" in capsys.readouterr().out
+    assert "no shards to run" in capsys.readouterr().out
 
 
 def test_missing_doit_is_exit_3(tmp_path, monkeypatch, capsys):

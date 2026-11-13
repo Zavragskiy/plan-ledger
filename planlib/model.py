@@ -308,3 +308,28 @@ def ready(task: Task, by_id: dict[str, Task]) -> bool:
         if other is None or other.status != "Done":
             return False
     return True
+
+
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+STATUS_ORDER = {"In Progress": 0, "To Do": 1, "Blocked": 1, "Done": 2}
+_NUMERIC_ID = re.compile(r"([A-Za-z]+)-(\d+)")
+
+
+def _id_key(task_id: str) -> tuple[int, str, int]:
+    match = _NUMERIC_ID.fullmatch(task_id)
+    if match:
+        return (0, match.group(1).upper(), int(match.group(2)))
+    return (1, task_id.upper(), 0)
+
+
+def sort_key(task: Task) -> tuple[int, int, tuple[int, str, int]]:
+    """Порядок отображения: In Progress, приоритет, натуральный id.
+
+    ``TASK-8`` идёт раньше ``TASK-13`` (числовое сравнение), ``TASK-1000`` —
+    после ``TASK-13``. Один ключ для plan-status, plan-task list и digest.
+    """
+    return (
+        STATUS_ORDER.get(task.status, 1),
+        PRIORITY_ORDER.get((task.priority or "").lower(), 3),
+        _id_key(task.id),
+    )

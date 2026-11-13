@@ -67,8 +67,77 @@ def _error_line(output: str) -> str:
     return lines[-1][:200] if lines else ""
 
 
+COMPACT_LISTED = 3
+
+
+def compact_detail(detail: str, limit: int = COMPACT_LISTED) -> str:
+    """Сжать список путей в диагностике: ``changed: a.py, b.py (+343 more)``.
+
+    Полный список остаётся в ``acceptance_status`` — сжатие нужно только
+    представлению (plan-status/plan-check), а не самому факту.
+    """
+    prefix, sep, rest = detail.partition(": ")
+    if not sep or not rest:
+        return detail
+    tail = 0
+    match = re.search(r"\s*… and (\d+) more$", rest)
+    if match:
+        rest = rest[: match.start()]
+        tail = int(match.group(1))
+    items = [item for item in rest.split(", ") if item.strip()]
+    text = f"{prefix}: " + ", ".join(items[:limit])
+    hidden = len(items) + tail - len(items[:limit])
+    if hidden > 0:
+        text += f" (+{hidden} more)"
+    return text
+
+
+_CACHE: dict[tuple[str, str, int, str], tuple[str, str]] = {}
+
+
+def clear_cache() -> None:
+    """Забыть закэшированные состояния (тесты и долгоживущие процессы)."""
+    _CACHE.clear()
+
+
+def _db_stamp(path: pathlib.Path) -> int:
+    """Версия БД: правка doit-базы (plan-run) сбрасывает кэш этого шарда.
+
+    doit хранит состояние не одним файлом (``dbm``: ``.doit.db.dat``,
+    ``.doit.db.dir``, ``.doit.db.bak``), поэтому берём максимум mtime по
+    артефактам ``<db>*``; отсутствие БД — версия 0.
+    """
+    stamp = 0
+    candidates = [path]
+    try:
+        candidates.extend(path.parent.glob(path.name + "*"))
+    except OSError:  # pragma: no cover - нечитаемый каталог состояния
+        pass
+    for candidate in candidates:
+        try:
+            stamp = max(stamp, candidate.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return stamp
+
+
 def acceptance_status(layout: Layout, shard: str) -> tuple[str, str]:
-    """(up-to-date | run | error | unknown | no-doit | no-dodo, подробность)."""
+    """(up-to-date | run | error | unknown | no-doit | no-dodo, подробность).
+
+    Один ``doit info`` на пару (dodo, БД, шард) за процесс: план из N задач на
+    M шардах стоит M подпроцессов, а не N. Ключ включает mtime БД, поэтому
+    ``plan-run`` в том же процессе виден сразу.
+    """
+    key = (str(layout.dodo), str(layout.db), _db_stamp(layout.db), shard)
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return cached
+    result = _acceptance_status(layout, shard)
+    _CACHE[key] = result
+    return result
+
+
+def _acceptance_status(layout: Layout, shard: str) -> tuple[str, str]:
     if not layout.dodo.is_file():
         return "no-dodo", "no dodo file: " + _relative(layout.root, str(layout.dodo))
     if doit_executable(layout) is None:

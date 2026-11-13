@@ -133,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         items = model.load_tasks(tasks)
         if args.status:
             items = [task for task in items if task.status == args.status]
+        items = sorted(items, key=model.sort_key)
         if args.json:
             print(
                 json.dumps(

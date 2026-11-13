@@ -18,7 +18,7 @@ doit acceptance ─┘   plan-check    → is every "Done" actually proven?
 ```bash
 poetry add --editable /path/to/plan-ledger   # development
 # or
-poetry build && poetry add dist/plan_ledger-0.2.0-py3-none-any.whl
+poetry build && poetry add dist/plan_ledger-0.4.2-py3-none-any.whl
 ```
 
 Python `>=3.10`; dependencies `pyyaml`, `doit`, and `tomli` on 3.10.
@@ -70,19 +70,38 @@ before or after a subcommand.
 | `plan-task list [--status S] [--json]` | list tasks |
 | `plan-task new TITLE [-d DESC] [--ac …] [--shard gate] [--id ID] [--slug NAME] [--dep ID]` | create a task |
 | `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--shard NAME] [--slug NAME] [--check-ac N[,N…]] [--force]` | edit, with compare-and-set |
-| `plan-status [--json]` | statuses, readiness, acceptance, next task |
-| `plan-run [SHARD …] [--all] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses |
+| `plan-status [--json] [--open] [--with-detail]` | statuses, readiness, acceptance, next task |
+| `plan-run [SHARD …] [--all] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses; `--all` covers `dodo.py` |
 | `plan-shard list [--strict] [--json]` | shards declared in `dodo.py`, the tasks that reference them, and plan-hygiene violations |
-| `plan-check [--json] [--strict] [--allow-empty]` | gate |
+| `plan-check [--json] [--strict] [--allow-empty] [--with-detail]` | gate |
 | `plan-import SOURCE [--apply]` | import `## Phase N` roadmaps and numbered task files |
 | `plan-import --from-json FILE [--apply] [--group-by file\|rule\|none] [--shard NAME] [--slug-depth N]` | turn machine-readable gate findings into tasks |
 | `plan-scrape [--projects DIR] [--out DIR]` | copy local plans into `examples/local/` (gitignored) |
 
-Exit codes of `plan-check` and `plan-status`: `0` clean, `1` stale or incomplete, `2`
-strict-unverified (`plan-check` only), `3` bad config or empty plan. An empty plan is deliberately
-**not** a success: that was the silent-green failure mode a root-relative layout produced. The
-explicit escape hatches are `plan-check --allow-empty` and `plan-init --with-placeholder`.
-`plan-shard list --strict` returns `1` on hygiene violations and `3` when `dodo.py` cannot be read.
+Exit codes of `plan-check`: `0` clean, `1` stale or incomplete, `2` strict-unverified, `3` bad
+config or empty plan. `plan-status` returns `0`, or `3` on a bad config or an empty plan. An empty
+plan is deliberately **not** a success: that was the silent-green failure mode a root-relative
+layout produced. The explicit escape hatches are `plan-check --allow-empty` and
+`plan-init --with-placeholder`. `plan-shard list --strict` returns `1` on hygiene violations and
+`3` when `dodo.py` cannot be read.
+
+## Ordering, stale, and the detail budget
+
+One ordering contract is shared by `plan-status`, `plan-task list` and (later) `plan-digest`:
+`In Progress` first, then `priority` (`high` → `medium` → `low` → none), then a natural id — `TASK-8`
+before `TASK-13`, and `TASK-13` before `TASK-1000`. String comparison of ids was a bug: it picked
+`NEXT: TASK-13` over `TASK-8`.
+
+`stale` has one definition: a `Done` task whose shard acceptance is not confirmed. An **open** task
+with changed inputs was never proven, so it is reported as `not confirmed`, not stale —
+`plan-status` and `plan-check` count it the same way. `plan-status --open` hides `Done` rows while
+the totals still cover the whole plan (`N Done hidden` is printed; the JSON summary carries
+`hidden_done`).
+
+`plan-status` and `plan-check` show the first three changed paths plus a count
+(`changed: a.py, b.py, c.py (+343 more)`) and keep `detail: null` for rows where the verdict needs
+no diagnostic. `--with-detail` restores the full list; `PLAN_LEDGER_MAX_LISTED` still caps how much
+`doit` output is captured.
 
 ## Acceptance criteria are enforced
 
@@ -121,16 +140,18 @@ plan-task new "Убрать файловые исключения из гейт�
 
 ## Shards without manual lists
 
-`plan-run` no longer needs a hand-maintained list of shard names:
+`plan-run` does not need a hand-maintained list of shard names:
 
 ```bash
-plan-run --all               # every shard referenced by a plan task, deduplicated
+plan-run --all               # every shard declared by dodo.py, plus any the plan references
 plan-shard list              # shards declared in dodo.py + tasks pointing at them
 plan-shard list --strict     # exit 1 on hygiene violations (CI gate)
 ```
 
-`plan-run --all` warns on stderr when `dodo.py` declares a shard that no plan task references —
-otherwise a new shard (say `unit`) would silently never run in a CI that relies on `--all`.
+Coverage comes from `dodo.py`, not from the task tree: `plan-run --all` runs a shard even when no
+plan task references it, and it warns on stderr (`dodo.py shards without plan tasks: … — runs them
+anyway`). Before 0.4.2 such a shard was skipped, so deleting the last task of a shard silently
+removed the check from CI while the gate stayed green.
 
 `plan-shard list` reads the shard list through `doit list` (so dynamically created tasks count)
 and falls back to parsing `task_*` functions out of `dodo.py` when doit is unavailable. It marks
@@ -199,8 +220,9 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
   against it. plan-ledger always passes `-d <root>`, which makes relative paths resolve against the
   code root even when `dodo.py` sits in `.planlib/`.
 - Subprocess actions inherit doit's cwd; pin it explicitly: `CmdAction(..., cwd=str(ROOT))`.
-- Stale dependency lists are truncated to 10 paths (`… и ещё N`); raise with
-  `PLAN_LEDGER_MAX_LISTED`.
+- Stale dependency lists are truncated to 3 paths in the default view (`… (+N more)`); the raw
+  list is capped at 10 paths and raised with `PLAN_LEDGER_MAX_LISTED`, and `--with-detail` prints
+  it in full.
 - A failing acceptance prints one error line (`ValueError: …`, `ERROR: …`) instead of a traceback
   tail; a shard missing from `dodo.py` is reported as `unknown`, not as a crash.
 
@@ -222,6 +244,12 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
 ## Limits
 
 - `.doit.db` is local, so on CI every acceptance reads `run`; the gate checks freshness there.
+- Acceptance status is memoised per `(db, shard)` within one command, so a 100-task plan on two
+  shards costs two `doit info` calls, not 100. The cache is reset per command, so file edits and
+  `plan-run` are always visible.
+- 0.4.2 behaviour change: `plan-run --all` also runs `dodo.py` shards that no task references
+  (previously skipped with a warning), and `plan-status --json` gained `verdict`, `unconfirmed`
+  and `hidden_done` keys.
 - Statuses are `To Do / In Progress / Blocked / Done`; a blocker's reason lives in notes.
 - CLI output is English by design: there is no localization layer. Task titles, paths and
   imported text stay whatever UTF-8 they are (Cyrillic included); use `--json` for machine

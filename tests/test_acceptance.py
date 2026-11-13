@@ -1,14 +1,15 @@
-"""Приёмка: точный вызов doit, резолв путей, разбор состояний."""
+"""Приёмка: точный вызов doit, резолв путей, разбор состояний, кэш по шарду."""
 
 from __future__ import annotations
 
+import os
 import pathlib
 import types
 
 import pytest
 
-from planlib import Layout
-from planlib.acceptance import acceptance_status, doit_executable
+from planlib import Layout, model
+from planlib.acceptance import acceptance_status, clear_cache, doit_executable
 
 
 def layout_for(tmp_path: pathlib.Path) -> Layout:
@@ -144,3 +145,42 @@ def test_missing_list_is_truncated_too(tmp_path, monkeypatch):
     state, detail = acceptance_status(layout, "s1")
     assert state == "error"
     assert "… and 10 more" in detail
+
+
+def test_same_shard_is_computed_once(tmp_path, monkeypatch):
+    layout = layout_for(tmp_path)
+    calls = fake_run(monkeypatch, stdout="status     : up-to-date")
+    clear_cache()
+    assert acceptance_status(layout, "s1") == ("up-to-date", "")
+    assert acceptance_status(layout, "s1") == ("up-to-date", "")
+    assert len(calls) == 1, "один doit info на шард за процесс"
+
+
+def test_db_change_invalidates_the_cache(tmp_path, monkeypatch):
+    layout = layout_for(tmp_path)
+    layout.db.write_text("v1", encoding="utf-8")
+    calls = fake_run(monkeypatch, stdout="status     : up-to-date")
+    clear_cache()
+    acceptance_status(layout, "s1")
+    stamp = layout.db.stat().st_mtime_ns + 1_000_000_000
+    os.utime(layout.db, ns=(stamp, stamp))
+    acceptance_status(layout, "s1")
+    assert len(calls) == 2, "plan-run в том же процессе двигает БД — кэш обязан сброситься"
+
+
+def test_many_tasks_one_shard_one_call(tmp_path, monkeypatch):
+    from planlib.cli import status
+
+    layout = layout_for(tmp_path)
+    for number in (1, 2, 3):
+        model.create(
+            layout.tasks,
+            title=f"task {number}",
+            labels=["shard:s1"],
+            task_id=f"TASK-{number}",
+        )
+    calls = fake_run(monkeypatch, stdout="status     : up-to-date")
+    clear_cache()
+    data = status.build(layout)
+    assert len(data["tasks"]) == 3
+    assert len(calls) == 1, "три задачи одного шарда стоят один вызов doit"

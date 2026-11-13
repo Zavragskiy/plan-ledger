@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from planlib import acceptance_status, load_tasks
+from planlib import acceptance_status, clear_cache, load_tasks
 from planlib.config import (
     Layout,
     LayoutError,
@@ -105,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
 
     enable_utf8()
     args = parser.parse_args(argv)
+    clear_cache()  # кэш живёт один вызов команды, а не процесс целиком
     try:
         layout = layout_from_args(args)
     except LayoutError as error:

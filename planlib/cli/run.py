@@ -3,7 +3,7 @@
 Examples:
   plan-run s3               # one shard
   plan-run s1 s2            # several
-  plan-run --all            # every shard referenced by the plan
+  plan-run --all            # every shard in dodo.py (plus any the plan references)
   plan-run                  # every doit task
   plan-run --project .planlib s3
 """
@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="every shard referenced by the plan (no manual list)",
+        help="every shard declared by dodo.py, plus any shard the plan references",
     )
     parser.add_argument("--quiet", action="store_true", help="do not print the command")
     enable_utf8()
@@ -45,32 +45,33 @@ def main(argv: list[str] | None = None) -> int:
     if args.all and args.shards:
         print("--all cannot be combined with an explicit shard list")
         return 2
-    if args.all:
-        shards = [task.shard for task in load_tasks(layout.tasks) if task.shard]
-        args.shards = list(dict.fromkeys(shards))
-        if not args.shards:
-            print(
-                f"the plan has no tasks with a shard:<name> label: {layout.tasks}\n"
-                "Create tasks with --shard or pass shard names explicitly."
-            )
-            return 1
-        print("shards from plan: " + ", ".join(args.shards))
 
     if not layout.dodo.is_file():
         print(f"no dodo file: {layout.dodo}")
         return 3
 
     if args.all:
+        # Покрытие — из dodo.py: шард без задач всё равно прогоняется, иначе
+        # удаление последней задачи шарда тихо выключает проверку в CI.
+        plan_shards = [task.shard for task in load_tasks(layout.tasks) if task.shard]
         try:
-            names, _ = declared(layout)
+            declared_shards, _ = declared(layout)
         except (OSError, SyntaxError):
-            names = []
-        unused = [name for name in names if name not in set(args.shards)]
-        if unused:
+            declared_shards = []
+        args.shards = list(dict.fromkeys([*declared_shards, *plan_shards]))
+        if not args.shards:
             print(
-                "warning: dodo.py declares shards without tasks: "
-                + ", ".join(unused)
-                + " — plan-run --all does not run them",
+                "no shards to run: dodo.py declares none and the plan has no "
+                f"shard:<name> label ({layout.tasks})"
+            )
+            return 1
+        print("shards from dodo.py and plan: " + ", ".join(args.shards))
+        without_tasks = [name for name in declared_shards if name not in set(plan_shards)]
+        if without_tasks:
+            print(
+                "warning: dodo.py shards without plan tasks: "
+                + ", ".join(without_tasks)
+                + " — plan-run --all runs them anyway (coverage comes from dodo.py)",
                 file=sys.stderr,
             )
 
