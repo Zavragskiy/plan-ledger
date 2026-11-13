@@ -13,10 +13,12 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import re
+import subprocess
 
-from planlib import model
+from planlib import acceptance_state, model
 from planlib.config import (
     Layout,
     LayoutError,
@@ -27,6 +29,58 @@ from planlib.console import enable_utf8
 
 
 SHARD = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _now() -> str:
+    return dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def _git_commit(layout: Layout) -> str | None:
+    """Короткий HEAD для evidence; без git или вне репозитория — None."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=layout.root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = (result.stdout or "").strip()
+    return value if result.returncode == 0 and value else None
+
+
+def _closeout(layout: Layout, task: model.Task, args: argparse.Namespace) -> model.Closeout:
+    """Собрать closeout из флагов одного вызова; пустые значения — отказ."""
+    outcome = (args.outcome or "").strip()
+    if not outcome:
+        raise ValueError("closeout: --outcome is required when closeout flags are used")
+    lists = {
+        "decisions": list(args.decision),
+        "followups": list(args.followup),
+        "files": list(args.files),
+        "tests": list(args.tests),
+    }
+    for name, values in lists.items():
+        for value in values:
+            if not value.strip():
+                raise ValueError(f"closeout: empty value in --{name[:-1]}")
+    evidence: dict[str, str] = {}
+    if task.shard:
+        evidence["shard"] = task.shard
+        evidence["result"] = acceptance_state(layout, task.shard)
+    commit = _git_commit(layout)
+    if commit:
+        evidence["commit"] = commit
+    return model.Closeout(
+        outcome=outcome,
+        decisions=[value.strip() for value in lists["decisions"]],
+        followups=[value.strip() for value in lists["followups"]],
+        files=[value.strip() for value in lists["files"]],
+        tests=[value.strip() for value in lists["tests"]],
+        evidence=evidence,
+    )
 
 
 def _with_shard(labels: list[str], value: str) -> list[str]:
@@ -60,6 +114,21 @@ def _print_task(task: model.Task, layout: Layout) -> None:
         print(f"  labels: {', '.join(task.labels)}")
     if task.dependencies:
         print(f"  deps:   {', '.join(task.dependencies)}")
+    if task.closed:
+        print(f"  closed: {task.closed}")
+    if task.closeout and task.closeout.present:
+        print(f"  outcome: {task.closeout.outcome}")
+        for label, values in (
+            ("decision", task.closeout.decisions),
+            ("followup", task.closeout.followups),
+            ("file", task.closeout.files),
+            ("test", task.closeout.tests),
+        ):
+            for value in values:
+                print(f"  {label}: {value}")
+        if task.closeout.evidence:
+            evidence = ", ".join(f"{key}={value}" for key, value in task.closeout.evidence.items())
+            print(f"  evidence: {evidence}")
     for number, (done, text) in enumerate(task.acceptance, 1):
         print(f"  AC #{number} [{'x' if done else ' '}] {text}")
     if getattr(task, "path", None):
@@ -113,8 +182,18 @@ def main(argv: list[str] | None = None) -> int:
     edit.add_argument("--uncheck-ac", action="append", default=[], metavar="N",
                       help="uncheck criterion N; repeat or use a comma list")
     edit.add_argument("--description")
+    edit.add_argument("--outcome",
+                      help="closeout: one or two lines on what changed (required at Done)")
+    edit.add_argument("--decision", action="append", default=[],
+                      help="closeout: why this approach / what was rejected (repeatable)")
+    edit.add_argument("--followup", action="append", default=[],
+                      help="closeout: remaining work (repeatable)")
+    edit.add_argument("--files", action="append", default=[],
+                      help="closeout: changed files (repeatable)")
+    edit.add_argument("--tests", action="append", default=[],
+                      help="closeout: acceptance commands or results (repeatable)")
     edit.add_argument("--force", action="store_true",
-                      help="allow Done even when not every criterion is checked")
+                      help="allow Done without a closeout or with unchecked criteria")
 
     show = sub.add_parser("show", parents=[sub_flags], help="show a task")
     show.add_argument("task_id")
@@ -145,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
                             "status": task.status,
                             "labels": task.labels,
                             "dependencies": task.dependencies,
+                            "outcome": task.closeout.outcome if task.closeout and task.closeout.present else None,
+                            "closed_date": task.closed or None,
                             "acceptance": [
                                 {"done": done, "text": text} for done, text in task.acceptance
                             ],
@@ -197,6 +278,8 @@ def main(argv: list[str] | None = None) -> int:
                         "labels": task.labels,
                         "dependencies": task.dependencies,
                         "owner": task.owner,
+                        "closed_date": task.closed or None,
+                        "closeout": task.closeout.to_dict() if task.closeout and task.closeout.meaningful else None,
                         "acceptance": [
                             {"done": done, "text": text} for done, text in task.acceptance
                         ],
@@ -211,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     task = model.find(tasks, args.task_id)
+    previous_status = task.status
     if args.if_status and task.status != args.if_status:
         print(f"refused: {task.id} is in status '{task.status}', expected '{args.if_status}'")
         return 1
@@ -266,6 +350,23 @@ def main(argv: list[str] | None = None) -> int:
             "(use --force to record Done anyway)"
         )
         return 1
+    provided_closeout = bool(
+        args.outcome is not None or args.decision or args.followup or args.files or args.tests
+    )
+    if provided_closeout:
+        try:
+            task.closeout = _closeout(layout, task, args)
+        except ValueError as error:
+            print(f"refused: {error}")
+            return 1
+    if task.status == "Done" and previous_status != "Done":
+        if not provided_closeout and not args.force:
+            print(
+                f"refused: {task.id} moves to Done without a closeout; "
+                'pass --outcome "..." (or --force)'
+            )
+            return 1
+        task.closed = _now()
     try:
         path = model.save(task, tasks)
     except ValueError as error:

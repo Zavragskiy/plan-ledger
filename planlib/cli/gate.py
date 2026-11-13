@@ -1,7 +1,7 @@
-"""Plan gate: Done must be proven by acceptance and closed by criteria.
+"""Plan gate: Done must be proven by acceptance, closed by criteria and a closeout.
 
-Exit codes: 0 clean, 1 stale/incomplete, 2 --strict with unverified Done,
-3 config error or empty plan.
+Exit codes: 0 clean, 1 stale/incomplete, 2 --strict with unverified Done or a
+missing closeout, 3 config error or empty plan.
 """
 
 from __future__ import annotations
@@ -99,12 +99,14 @@ def main(argv: list[str] | None = None) -> int:
     stale = [row for row in rows if row["verdict"] == "stale"]
     incomplete = [row for row in rows if row["verdict"] == "incomplete"]
     unverified = [row for row in rows if row["verdict"] == "unverified"]
+    no_closeout = [row for row in rows if row["verdict"] == "no-closeout"]
     summary = {
         "tasks": len(rows),
         "ok": sum(row["verdict"] == "ok" for row in rows),
         "stale": len(stale),
         "incomplete": len(incomplete),
         "unverified": len(unverified),
+        "no_closeout": len(no_closeout),
         "open": sum(row["verdict"] == "open" for row in rows),
     }
 
@@ -141,10 +143,14 @@ def main(argv: list[str] | None = None) -> int:
             print("\nUNVERIFIED (historical, not blocking without --strict):")
             for row in unverified:
                 print(f" - {row['id']}: {row['title'][:60]}")
+        if no_closeout:
+            print("\nNO CLOSEOUT (historical, not blocking without --strict):")
+            for row in no_closeout:
+                print(f" - {row['id']}: {row['title'][:60]}")
 
     if stale or incomplete:
         return 1
-    if args.strict and unverified:
+    if args.strict and (unverified or no_closeout):
         return 2
     return 0
 

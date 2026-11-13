@@ -151,6 +151,47 @@ def test_all_without_any_shards_is_exit_1(tmp_path, monkeypatch, capsys):
     assert "no shards to run" in capsys.readouterr().out
 
 
+def test_done_runs_only_done_shards_and_prints_skipped(tmp_path, monkeypatch, capsys):
+    from planlib import model
+
+    layout = layout_for(tmp_path)
+    model.create(layout.tasks, title="done one", labels=["shard:s1"], status="Done")
+    model.create(layout.tasks, title="done two", labels=["shard:s2"], status="Done")
+    model.create(layout.tasks, title="open one", labels=["shard:s3"])
+    seen: dict[str, tuple[str, ...]] = {}
+
+    def fake_run(layout_arg, action, *tasks):
+        seen["tasks"] = tasks
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
+    monkeypatch.setattr("planlib.cli.run.doit_executable", lambda layout: "doit")
+    monkeypatch.setattr("planlib.cli.run.run", fake_run)
+
+    assert plan_run.main(["--done"]) == 0
+    assert seen["tasks"] == ("s1", "s2"), "только шарды Done-задач"
+    captured = capsys.readouterr()
+    assert "s1" in captured.out and "s2" in captured.out
+    assert "skipped (not Done): s3" in captured.err, "пропущенные шарды не молчат"
+
+
+def test_done_without_done_tasks_is_exit_1(tmp_path, monkeypatch, capsys):
+    from planlib import model
+
+    layout = layout_for(tmp_path)
+    model.create(layout.tasks, title="open", labels=["shard:s1"])
+    monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
+    assert plan_run.main(["--done"]) == 1
+    assert "no Done tasks" in capsys.readouterr().out
+
+
+def test_done_cannot_be_combined_with_all_or_list(tmp_path, monkeypatch, capsys):
+    layout = layout_for(tmp_path)
+    monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
+    assert plan_run.main(["--done", "--all"]) == 2
+    assert "--done" in capsys.readouterr().out
+
+
 def test_missing_doit_is_exit_3(tmp_path, monkeypatch, capsys):
     layout = layout_for(tmp_path)
     monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)

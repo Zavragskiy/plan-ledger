@@ -87,7 +87,8 @@ def test_json_includes_layout(tmp_path, monkeypatch, capsys):
     assert gate.main(["--project", str(tmp_path), "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["layout"]["root"] == str(tmp_path)
-    assert data["summary"]["ok"] == 1
+    assert data["summary"]["ok"] == 0
+    assert data["summary"]["no_closeout"] == 1, "Done без outcome — no-closeout, а не ok"
 
 
 def test_bad_config_is_exit_3(tmp_path, capsys):

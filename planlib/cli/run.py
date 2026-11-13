@@ -4,6 +4,7 @@ Examples:
   plan-run s3               # one shard
   plan-run s1 s2            # several
   plan-run --all            # every shard in dodo.py (plus any the plan references)
+  plan-run --done           # only the shards of Done tasks (re-prove the closed set)
   plan-run                  # every doit task
   plan-run --project .planlib s3
 """
@@ -32,6 +33,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="every shard declared by dodo.py, plus any shard the plan references",
     )
+    parser.add_argument(
+        "--done",
+        action="store_true",
+        help="only the shards of Done tasks; the skipped shards are printed",
+    )
     parser.add_argument("--quiet", action="store_true", help="do not print the command")
     enable_utf8()
     args = parser.parse_args(argv)
@@ -45,10 +51,41 @@ def main(argv: list[str] | None = None) -> int:
     if args.all and args.shards:
         print("--all cannot be combined with an explicit shard list")
         return 2
+    if args.done and (args.all or args.shards):
+        print("--done cannot be combined with --all or an explicit shard list")
+        return 2
 
     if not layout.dodo.is_file():
         print(f"no dodo file: {layout.dodo}")
         return 3
+
+    if args.done:
+        # Пере-доказать ровно закрытый набор: шарды Done-задач, без контрактов
+        # незапущенных стадий, которые падают по устройству дерева.
+        tasks = load_tasks(layout.tasks)
+        done_shards = list(
+            dict.fromkeys(task.shard for task in tasks if task.status == "Done" and task.shard)
+        )
+        open_shards = list(
+            dict.fromkeys(
+                task.shard
+                for task in tasks
+                if task.status != "Done" and task.shard and task.shard not in done_shards
+            )
+        )
+        if not done_shards:
+            print(
+                "no Done tasks with a shard:<name> label: "
+                f"{layout.tasks}\nMark a task Done before re-proving it."
+            )
+            return 1
+        args.shards = done_shards
+        print("shards of Done tasks: " + ", ".join(done_shards))
+        if open_shards:
+            print(
+                "skipped (not Done): " + ", ".join(open_shards),
+                file=sys.stderr,
+            )
 
     if args.all:
         # Покрытие — из dodo.py: шард без задач всё равно прогоняется, иначе

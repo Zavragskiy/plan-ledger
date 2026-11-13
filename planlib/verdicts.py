@@ -15,16 +15,23 @@ ERROR_STATES = {"error", "no-doit", "no-dodo"}
 
 
 def classify(task: Task, acceptance: str) -> str:
-    """Вердикт задачи по её статусу и состоянию приёмки шарда."""
+    """Вердикт задачи по статусу, приёмке шарда и closeout.
+
+    ``no-closeout`` — новый неблокирующий класс: Done-задача без ``outcome``.
+    Исторические задачи не переписываются задним числом; ``--strict`` в гейте
+    поднимает этот класс до exit 2.
+    """
     if task.status != "Done":
         return "open"
     if task.criteria["total"] and task.unchecked():
         return "incomplete"
-    if acceptance == "up-to-date":
-        return "ok"
     if acceptance == "no-acceptance":
         return "unverified"
-    return "stale"
+    if acceptance != "up-to-date":
+        return "stale"
+    if task.closeout is None or not task.closeout.present:
+        return "no-closeout"
+    return "ok"
 
 
 def needs_detail(

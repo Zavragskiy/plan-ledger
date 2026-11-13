@@ -177,6 +177,13 @@ def acceptance_detail(layout: Layout, shard: str) -> str:
     return _info(layout, shard)[1]
 
 
+def acceptance_states(layout: Layout) -> dict[str, str] | None:
+    """Все состояния шардов одним батчем; None, если ``doit list --status`` недоступен."""
+    if not layout.dodo.is_file() or doit_executable(layout) is None:
+        return None
+    return _batch_states(layout)
+
+
 def acceptance_status(layout: Layout, shard: str) -> tuple[str, str]:
     """(up-to-date | run | error | unknown | no-doit | no-dodo, подробность).
 

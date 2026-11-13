@@ -18,7 +18,7 @@ doit acceptance ─┘   plan-check    → is every "Done" actually proven?
 ```bash
 poetry add --editable /path/to/plan-ledger   # development
 # or
-poetry build && poetry add dist/plan_ledger-0.4.3-py3-none-any.whl
+poetry build && poetry add dist/plan_ledger-0.5.0-py3-none-any.whl
 ```
 
 Python `>=3.10`; dependencies `pyyaml`, `doit`, and `tomli` on 3.10.
@@ -69,27 +69,28 @@ before or after a subcommand.
 | `plan-init [--state .planlib] [--tasks-base state] [--with-placeholder] [--config pyproject] [--dry-run]` | scaffold state, config, `dodo.py`, `.gitignore` |
 | `plan-task list [--status S] [--json]` | list tasks |
 | `plan-task new TITLE [-d DESC] [--ac …] [--shard gate] [--id ID] [--slug NAME] [--dep ID]` | create a task |
-| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--shard NAME] [--slug NAME] [--check-ac N[,N…]] [--force]` | edit, with compare-and-set |
+| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--shard NAME] [--slug NAME] [--check-ac N[,N…]] [--outcome TEXT] [--decision …] [--followup …] [--files …] [--tests …] [--force]` | edit, with compare-and-set and the closeout envelope |
 | `plan-status [--json] [--open] [--with-detail]` | statuses, readiness, acceptance, next task |
-| `plan-run [SHARD …] [--all] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses; `--all` covers `dodo.py` |
+| `plan-digest [--json] [--limit N] [--active] [--status S] [--since 90d] [--task ID] [--with-detail]` | compact snapshot for agents: one line per task, totals always |
+| `plan-run [SHARD …] [--all] [--done] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses; `--all` covers `dodo.py`, `--done` re-proves the closed set |
 | `plan-shard list [--strict] [--json]` | shards declared in `dodo.py`, the tasks that reference them, and plan-hygiene violations |
 | `plan-check [--json] [--strict] [--allow-empty] [--with-detail]` | gate |
 | `plan-import SOURCE [--apply]` | import `## Phase N` roadmaps and numbered task files |
 | `plan-import --from-json FILE [--apply] [--group-by file\|rule\|none] [--shard NAME] [--slug-depth N]` | turn machine-readable gate findings into tasks |
 | `plan-scrape [--projects DIR] [--out DIR]` | copy local plans into `examples/local/` (gitignored) |
 
-Exit codes of `plan-check`: `0` clean, `1` stale or incomplete, `2` strict-unverified, `3` bad
-config or empty plan. `plan-status` returns `0`, or `3` on a bad config or an empty plan. An empty
-plan is deliberately **not** a success: that was the silent-green failure mode a root-relative
-layout produced. The explicit escape hatches are `plan-check --allow-empty` and
-`plan-init --with-placeholder`. `plan-shard list --strict` returns `1` on hygiene violations and
-`3` when `dodo.py` cannot be read.
+Exit codes of `plan-check`: `0` clean, `1` stale or incomplete, `2` `--strict` with an unverified
+`Done` task or a missing closeout, `3` bad config or empty plan. `plan-status` returns `0`, or `3` on
+a bad config or an empty plan. An empty plan is deliberately **not** a success: that was the
+silent-green failure mode a root-relative layout produced. The explicit escape hatches are
+`plan-check --allow-empty` and `plan-init --with-placeholder`. `plan-shard list --strict` returns `1`
+on hygiene violations and `3` when `dodo.py` cannot be read.
 
 ## Ordering, stale, and the detail budget
 
-One ordering contract is shared by `plan-status`, `plan-task list` and (later) `plan-digest`:
-`In Progress` first, then `priority` (`high` → `medium` → `low` → none), then a natural id — every
-numeric segment compares as a number, so `TASK-8` < `TASK-13` < `TASK-1000` and
+One ordering contract is shared by `plan-status`, `plan-task list`, `plan-check` and
+`plan-digest`: `In Progress` first, then `priority` (`high` → `medium` → `low` → none), then a
+natural id — every numeric segment compares as a number, so `TASK-8` < `TASK-13` < `TASK-1000` and
 `D2-SCAN-PLAN` < `D10-LIVE`; ids without digits keep a deterministic text order. String comparison
 of ids was a bug: it picked `NEXT: TASK-13` over `TASK-8`.
 
@@ -103,6 +104,26 @@ the totals still cover the whole plan (`N Done hidden` is printed; the JSON summ
 (`changed: a.py, b.py, c.py (+343 more)`) and keep `detail: null` for rows where the verdict needs
 no diagnostic. `--with-detail` restores the full list; `PLAN_LEDGER_MAX_LISTED` still caps how much
 `doit` output is captured.
+
+## Digest for agents
+
+`plan-digest` is the bounded snapshot an agent reads every few steps:
+
+```bash
+plan-digest --active --limit 10        # open work, at most 10 rows
+plan-digest --task TASK-23             # why is this relevant: related closeouts
+plan-digest --since 90d --json         # recent Done closeouts for a machine
+```
+
+- one row per task: `id, status, shard, ready, ac x/y, acceptance, verdict, outcome, closed`;
+- totals are always printed and never depend on `--limit` or `--status`:
+  `total 30, done 16, open 14, stale 0, not confirmed 0, no closeout 2` plus
+  `shards proven: 2/3 of dodo.py`;
+- no acceptance detail by default (`--with-detail` for debugging); truncation is explicit
+  (`hidden: 9 limit`);
+- `--task ID` returns the task plus `Done` tasks that share its shard or `files`, each with a
+  one-line `why`;
+- `--since 90d` filters `Done` rows by `closed_date`; open rows always stay.
 
 ## Acceptance criteria are enforced
 
@@ -120,6 +141,30 @@ TASK-1   Done   1/3   s1   up-to-date   incomplete
 - `plan-check --json` rows carry `criteria: {checked, total}`; `plan-status` shows an `AC 2/3` column.
 - Tasks without criteria (imported historical plans) keep working as before: `unverified` under
   `--strict` only.
+
+## Closeout at Done
+
+A `Done` task carries a machine-checked closeout, captured in the same call that closes it:
+
+```bash
+plan-task set TASK-3 --status Done --check-ac 1,2 \
+    --outcome "parser split out; gate green" \
+    --decision "kept module-level names for the test harness" \
+    --followup "extend the mypy scope to src/extra" \
+    --files src/parser.py tests/test_parser.py \
+    --tests "pytest tests/test_parser.py"
+```
+
+- `--outcome` is required on the transition to `Done`; `--force` is the explicit escape hatch and
+  the gate keeps reporting `no-closeout` for it.
+- `closed_date` is written exactly on that transition and never moved by later edits
+  (`updated_date` keeps its old meaning); retention and `plan-digest --since` read it.
+- Re-confirming `Done` with any closeout flag **replaces** the block instead of appending.
+- `evidence` is `{shard, result, commit}`: the acceptance state at close time plus the short HEAD;
+  `commit` is omitted outside a git checkout.
+- The gate reports `no-closeout` as a separate non-blocking class: historical `Done` tasks are not
+  rewritten, and `plan-check --strict` turns the class into exit 2.
+- `plan-task show` prints the block; `plan-task list --json` carries `outcome` and `closed_date`.
 
 ## Task ids and file names
 
@@ -202,7 +247,9 @@ plan-init --with-placeholder                # once: .planlib + config + dodo.py
 plan-status
 plan-task set TASK-3 --status "In Progress" --if-status "To Do"
 plan-run --all                              # exactly what plan-check will verify
-plan-task set TASK-3 --status Done --check-ac 1 --note "plan-run --all — passed"
+plan-task set TASK-3 --status Done --check-ac 1 \
+    --outcome "what changed" --files src/parser.py \
+    --note "plan-run --all — passed"
 plan-check
 ```
 
@@ -253,6 +300,10 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
 - 0.4.2 behaviour change: `plan-run --all` also runs `dodo.py` shards that no task references
   (previously skipped with a warning), and `plan-status --json` gained `verdict`, `unconfirmed`
   and `hidden_done` keys.
+- 0.5.0 behaviour change: moving a task to `Done` requires `--outcome` (`--force` overrides and is
+  reported), `plan-check` gained the `no-closeout` verdict and `summary.no_closeout`,
+  `plan-task list --json` gained `outcome`/`closed_date`, and `plan-task set` gained the closeout
+  flags. Existing task files load unchanged.
 - Statuses are `To Do / In Progress / Blocked / Done`; a blocker's reason lives in notes.
 - CLI output is English by design: there is no localization layer. Task titles, paths and
   imported text stay whatever UTF-8 they are (Cyrillic included); use `--json` for machine

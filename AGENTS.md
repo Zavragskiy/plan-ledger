@@ -11,8 +11,9 @@
 - **Take:** `plan-task set <id> --status "In Progress" --if-status "To Do"` — compare-and-set;
   чужая сессия сдвинула статус → команда падает, ничего не меняя.
 - **Evidence:** `Done` только после `plan-run --all` (или `plan-run <shard>`) и с отмеченными
-  критериями (`--check-ac 1,2,…`); в том же коммите — `--note "session <id>: plan-run <shard> →
-  <результат>"`.
+  критериями (`--check-ac 1,2,…`), в том же вызове — closeout: `--outcome "…" --decision "…"`,
+  `--files`, `--tests`. `closed_date` пишется на переходе; повторный `Done` заменяет closeout.
+  `--force` — исключение, гейт покажет `no-closeout`.
 - **Gate:** `plan-check` в pre-commit; `stale` (Done с изменившимися файлами) — блокер, а пустой
   план даёт exit 3, а не «зелено». Для первого коммита — `plan-init --with-placeholder`.
 - **Hygiene:** `plan-shard list --strict` в CI — exit 1, если шард есть в `dodo.py`, но на него не

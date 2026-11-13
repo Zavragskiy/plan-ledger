@@ -119,6 +119,8 @@ def test_done_allowed_when_all_criteria_checked(tmp_path):
             "Done",
             "--check-ac",
             "1,2,3",
+            "--outcome",
+            "done in test",
             "--project",
             str(tmp_path),
         ],
@@ -129,6 +131,8 @@ def test_done_allowed_when_all_criteria_checked(tmp_path):
     task = model.load_tasks(tmp_path / "backlog" / "tasks")[0]
     assert task.status == "Done"
     assert task.criteria == {"checked": 3, "total": 3}
+    assert task.closeout is not None and task.closeout.outcome == "done in test"
+    assert task.closed, "closed_date фиксируется на переходе в Done"
 
 
 def test_force_allows_done_with_unchecked_criteria(tmp_path):

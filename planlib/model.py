@@ -30,6 +30,75 @@ TRANSLIT = {
 
 
 @dataclass
+class Closeout:
+    """Структурный итог Done-задачи: конверт машинный, проза — одна-две строки."""
+
+    outcome: str = ""
+    decisions: list[str] = field(default_factory=list)
+    followups: list[str] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
+    tests: list[str] = field(default_factory=list)
+    evidence: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def present(self) -> bool:
+        return bool(self.outcome.strip())
+
+    @property
+    def meaningful(self) -> bool:
+        return bool(
+            self.present or self.decisions or self.followups or self.files
+            or self.tests or self.evidence
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        data: dict[str, object] = {"outcome": self.outcome}
+        if self.decisions:
+            data["decisions"] = list(self.decisions)
+        if self.followups:
+            data["followups"] = list(self.followups)
+        if self.files:
+            data["files"] = list(self.files)
+        if self.tests:
+            data["tests"] = list(self.tests)
+        if self.evidence:
+            data["evidence"] = dict(self.evidence)
+        return data
+
+    @classmethod
+    def from_dict(cls, raw: object) -> "Closeout | None":
+        if not isinstance(raw, dict):
+            return None
+
+        def strings(key: str) -> list[str]:
+            value = raw.get(key)
+            if isinstance(value, str):
+                items = [value]
+            elif isinstance(value, list):
+                items = [str(item) for item in value]
+            else:
+                return []
+            return [item.strip() for item in items if item.strip()]
+
+        evidence: dict[str, str] = {}
+        raw_evidence = raw.get("evidence")
+        if isinstance(raw_evidence, dict):
+            evidence = {
+                str(key): str(value)
+                for key, value in raw_evidence.items()
+                if value is not None
+            }
+        return cls(
+            outcome=str(raw.get("outcome") or "").strip(),
+            decisions=strings("decisions"),
+            followups=strings("followups"),
+            files=strings("files"),
+            tests=strings("tests"),
+            evidence=evidence,
+        )
+
+
+@dataclass
 class Task:
     id: str
     title: str
@@ -41,6 +110,8 @@ class Task:
     owner: str | None = None
     created: str = ""
     updated: str = ""
+    closed: str = ""
+    closeout: Closeout | None = None
     references: list[str] = field(default_factory=list)
     description: str = ""
     plan: str = ""
@@ -96,6 +167,10 @@ class Task:
             meta["dependencies"] = list(self.dependencies)
         if self.references:
             meta["references"] = list(self.references)
+        if self.closed:
+            meta["closed_date"] = self.closed
+        if self.closeout is not None and self.closeout.meaningful:
+            meta["closeout"] = self.closeout.to_dict()
         meta["created_date"] = self.created or _now()
         meta["updated_date"] = self.updated or _now()
         front = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False).strip()
@@ -191,6 +266,8 @@ def parse(path: pathlib.Path) -> Task:
         owner=meta.get("owner"),
         created=str(meta.get("created_date", "")),
         updated=str(meta.get("updated_date", "")),
+        closed=str(meta.get("closed_date", "")),
+        closeout=Closeout.from_dict(meta.get("closeout")),
         references=[str(item) for item in (meta.get("references") or [])],
         description=description,
         plan=plan,

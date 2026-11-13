@@ -3,6 +3,7 @@
 from .acceptance import (
     acceptance_detail,
     acceptance_state,
+    acceptance_states,
     acceptance_status,
     clear_cache,
     compact_detail,
@@ -12,6 +13,7 @@ from .config import Layout, LayoutError, resolve
 from .model import (
     STATUSES,
     Task,
+    Closeout,
     create,
     find,
     load_tasks,
@@ -25,8 +27,10 @@ __all__ = [
     "Layout",
     "LayoutError",
     "Task",
+    "Closeout",
     "acceptance_detail",
     "acceptance_state",
+    "acceptance_states",
     "acceptance_status",
     "clear_cache",
     "compact_detail",
