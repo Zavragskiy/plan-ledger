@@ -223,11 +223,15 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
 
 - `.doit.db` is local, so on CI every acceptance reads `run`; the gate checks freshness there.
 - Statuses are `To Do / In Progress / Blocked / Done`; a blocker's reason lives in notes.
+- CLI output is English by design: there is no localization layer. Task titles, paths and
+  imported text stay whatever UTF-8 they are (Cyrillic included); use `--json` for machine
+  parsing instead of localized human text.
 - Without `--slug`, task titles are transliterated into ASCII file names; `--slug` opts out.
+- 0.4.0 translated the CLI to English (a breaking change for scripts that matched Russian
+  strings); JSON output was already English-keyed and is the stable interface.
 - Upgrading from 0.2: `tasks` is now resolved from the config's directory. A config that kept
   tasks inside `state` (`.planlib/backlog/tasks`) needs `tasks_base = "state"` or a `tasks` path
   that includes the state dir.
-- CLI messages are currently in Russian.
 
 ## License
 

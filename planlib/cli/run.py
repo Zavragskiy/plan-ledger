@@ -1,10 +1,10 @@
-"""`plan-run`: прогнать приёмку шардов теми же аргументами, что проверяет plan-check.
+"""`plan-run`: run shard acceptance with exactly the arguments plan-check uses.
 
-Примеры:
-  plan-run s3               # один шард
-  plan-run s1 s2            # несколько
-  plan-run --all            # все шарды, на которые ссылаются задачи плана
-  plan-run                  # все задачи dodo
+Examples:
+  plan-run s3               # one shard
+  plan-run s1 s2            # several
+  plan-run --all            # every shard referenced by the plan
+  plan-run                  # every doit task
   plan-run --project .planlib s3
 """
 
@@ -26,38 +26,38 @@ from planlib.shards import declared
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="plan-run", description=__doc__, parents=[layout_arguments_parent()])
-    parser.add_argument("shards", nargs="*", help="имена задач doit (по умолчанию — все)")
+    parser.add_argument("shards", nargs="*", help="doit task names (all by default)")
     parser.add_argument(
         "--all",
         action="store_true",
-        help="все шарды, на которые ссылаются задачи плана (без ручного перечисления)",
+        help="every shard referenced by the plan (no manual list)",
     )
-    parser.add_argument("--quiet", action="store_true", help="не печатать команду")
+    parser.add_argument("--quiet", action="store_true", help="do not print the command")
     enable_utf8()
     args = parser.parse_args(argv)
 
     try:
         layout = layout_from_args(args)
     except LayoutError as error:
-        print(f"ошибка конфига: {error}")
+        print(f"config error: {error}")
         return 3
 
     if args.all and args.shards:
-        print("--all нельзя сочетать с явным списком шардов")
+        print("--all cannot be combined with an explicit shard list")
         return 2
     if args.all:
         shards = [task.shard for task in load_tasks(layout.tasks) if task.shard]
         args.shards = list(dict.fromkeys(shards))
         if not args.shards:
             print(
-                f"в плане нет задач с меткой shard:<name>: {layout.tasks}\n"
-                "Создайте задачи с --shard или укажите шарды явно."
+                f"the plan has no tasks with a shard:<name> label: {layout.tasks}\n"
+                "Create tasks with --shard or pass shard names explicitly."
             )
             return 1
-        print("шарды из плана: " + ", ".join(args.shards))
+        print("shards from plan: " + ", ".join(args.shards))
 
     if not layout.dodo.is_file():
-        print(f"нет dodo-файла: {layout.dodo}")
+        print(f"no dodo file: {layout.dodo}")
         return 3
 
     if args.all:
@@ -68,15 +68,15 @@ def main(argv: list[str] | None = None) -> int:
         unused = [name for name in names if name not in set(args.shards)]
         if unused:
             print(
-                "предупреждение: в dodo.py есть шарды без задач: "
+                "warning: dodo.py declares shards without tasks: "
                 + ", ".join(unused)
-                + " — plan-run --all их не запускает",
+                + " — plan-run --all does not run them",
                 file=sys.stderr,
             )
 
     executable = doit_executable(layout)
     if executable is None:
-        print("doit не найден: установите его в окружение plan-ledger")
+        print("doit not found: install it into the plan-ledger environment")
         return 3
 
     argv_out = command(layout, executable, "run", *args.shards)

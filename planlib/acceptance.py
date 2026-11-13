@@ -50,7 +50,7 @@ def _listed(
     limit = _max_listed()
     shown = ", ".join(items[:limit])
     if len(items) > limit:
-        shown += f" … и ещё {len(items) - limit}"
+        shown += f" … and {len(items) - limit} more"
     return f"{label}: {shown}"
 
 
@@ -70,27 +70,27 @@ def _error_line(output: str) -> str:
 def acceptance_status(layout: Layout, shard: str) -> tuple[str, str]:
     """(up-to-date | run | error | unknown | no-doit | no-dodo, подробность)."""
     if not layout.dodo.is_file():
-        return "no-dodo", "нет dodo-файла: " + _relative(layout.root, str(layout.dodo))
+        return "no-dodo", "no dodo file: " + _relative(layout.root, str(layout.dodo))
     if doit_executable(layout) is None:
-        return "no-doit", "doit не найден: установите его в окружение plan-ledger"
+        return "no-doit", "doit not found: install it into the plan-ledger environment"
     result = run_doit(layout, "info", shard)
     output = (result.stdout or "") + (result.stderr or "")
     if "up-to-date" in output:
         return "up-to-date", ""
-    missing = _listed(MISSING, output, layout.root, "не найдены file_dep")
+    missing = _listed(MISSING, output, layout.root, "missing file_dep")
     if missing is not None:
         return "error", missing
-    changed = _listed(CHANGED, output, layout.root, "изменились")
+    changed = _listed(CHANGED, output, layout.root, "changed")
     if changed is not None:
         return "run", changed
     where = _relative(layout.root, str(layout.dodo))
     if re.search(r"Unknown task|Task not found|Invalid parameter", output, re.I):
-        return "unknown", f"приёмка '{shard}' не найдена в {where}"
+        return "unknown", f"acceptance '{shard}' not found in {where}"
     if result.returncode != 0:
-        detail = _error_line(output) or f"doit завершился с кодом {result.returncode}"
+        detail = _error_line(output) or f"doit exited with code {result.returncode}"
         exceptions = EXCEPTION.findall(output)
         if TRACEBACK.search(output) and exceptions and exceptions[-1][0] == "KeyError":
             if shard.strip("'\"") in exceptions[-1][1]:
-                return "unknown", f"приёмка '{shard}' отсутствует в {where}: {detail}"
+                return "unknown", f"acceptance '{shard}' is missing from {where}: {detail}"
         return "error", f"doit: {detail}"
     return "run", ""

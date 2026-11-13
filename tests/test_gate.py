@@ -24,12 +24,12 @@ def write_tasks(tmp_path: pathlib.Path, tasks: list[dict]) -> pathlib.Path:
 def test_empty_plan_is_error(tmp_path, capsys):
     (tmp_path / "backlog" / "tasks").mkdir(parents=True)
     assert gate.main(["--project", str(tmp_path)]) == 3
-    assert "нет задач" in capsys.readouterr().out
+    assert "no tasks" in capsys.readouterr().out
 
 
 def test_missing_tasks_dir_is_error(tmp_path, capsys):
     assert gate.main(["--project", str(tmp_path)]) == 3
-    assert "нет каталога задач" in capsys.readouterr().out
+    assert "no tasks directory" in capsys.readouterr().out
 
 
 def test_allow_empty(tmp_path):
@@ -48,10 +48,10 @@ def test_stale_done_task(tmp_path, monkeypatch, capsys):
         tmp_path,
         [{"id": "TASK-1", "title": "one", "status": "Done", "labels": ["shard:s1"]}],
     )
-    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("run", "изменились: src/a.py"))
+    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("run", "changed: src/a.py"))
     assert gate.main(["--project", str(tmp_path)]) == 1
     output = capsys.readouterr().out
-    assert "ПРОТУХЛО" in output
+    assert "STALE" in output
     assert "src/a.py" in output
 
 
@@ -60,7 +60,7 @@ def test_error_acceptance_counts_as_stale(tmp_path, monkeypatch):
         tmp_path,
         [{"id": "TASK-1", "title": "one", "status": "Done", "labels": ["shard:s1"]}],
     )
-    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("error", "нет файлов"))
+    monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("error", "files missing"))
     assert gate.main(["--project", str(tmp_path)]) == 1
 
 
@@ -88,7 +88,7 @@ def test_json_includes_layout(tmp_path, monkeypatch, capsys):
 def test_bad_config_is_exit_3(tmp_path, capsys):
     (tmp_path / "plan-ledger.toml").write_text("[plan-ledger\n", encoding="utf-8")
     assert gate.main(["--project", str(tmp_path)]) == 3
-    assert "ошибка конфига" in capsys.readouterr().out
+    assert "config error" in capsys.readouterr().out
 
 
 def test_done_with_unchecked_criteria_is_incomplete(tmp_path, monkeypatch, capsys):
@@ -112,7 +112,7 @@ def test_done_with_unchecked_criteria_is_incomplete(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(gate, "acceptance_status", lambda layout, shard: ("up-to-date", ""))
     assert gate.main(["--project", str(tmp_path)]) == 1
     output = capsys.readouterr().out
-    assert "НЕПОЛНЫЕ" in output
+    assert "INCOMPLETE" in output
     assert "2, 3" in output
 
 

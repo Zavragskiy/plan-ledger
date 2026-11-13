@@ -1,7 +1,7 @@
-"""Точка входа для нового чата: что в плане, что готово, что дальше.
+"""New-chat entry point: what is in the plan, what is done, what is next.
 
-Печатает компактный обзор (или --json для агента): раскладку, статусы,
-зависимости, приёмку и одну рекомендованную следующую задачу.
+Prints a compact overview (or --json for agents): layout, statuses,
+dependencies, acceptance, and one recommended next task.
 """
 
 from __future__ import annotations
@@ -68,28 +68,28 @@ def build(layout: Layout) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, parents=[layout_arguments_parent()])
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--allow-empty", action="store_true", help="пустой план не ошибка")
+    parser.add_argument("--allow-empty", action="store_true", help="an empty plan is not an error")
     enable_utf8()
     args = parser.parse_args(argv)
 
     try:
         layout = layout_from_args(args)
     except LayoutError as error:
-        print(f"ошибка конфига: {error}")
+        print(f"config error: {error}")
         return 3
 
     if not layout.tasks_exist and not args.allow_empty:
         print(
-            f"нет каталога задач: {layout.tasks}\n"
-            "Запустите `plan-init --with-placeholder` или укажите --project/--config."
+            f"no tasks directory: {layout.tasks}\n"
+            "Run `plan-init --with-placeholder` or pass --project/--config."
         )
         return 3
 
     data = build(layout)
     if not data["tasks"] and not args.allow_empty:
         print(
-            f"в плане нет задач: {layout.tasks} "
-            "(пустой план — не успех; см. plan-init --with-placeholder)"
+            f"the plan has no tasks: {layout.tasks} "
+            "(an empty plan is not success; see plan-init --with-placeholder)"
         )
         return 3
 
@@ -97,26 +97,26 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return 0
 
-    print(f"План: {layout.describe()}")
-    print(f"{'task':8} {'status':12} {'AC':6} {'ready':6} {'shard':9} {'приёмка':13} title")
+    print(f"Plan: {layout.describe()}")
+    print(f"{'task':8} {'status':12} {'AC':6} {'ready':6} {'shard':9} {'acceptance':13} title")
     for row in data["tasks"]:
         shard = row["shard"] or "-"
         criteria = row["criteria"]
         ac = f"{criteria['checked']}/{criteria['total']}" if criteria["total"] else "-"
         print(
-            f"{row['id']:8} {row['status']:12} {ac:6} {'да' if row['ready'] else 'нет':6} "
+            f"{row['id']:8} {row['status']:12} {ac:6} {'yes' if row['ready'] else 'no':6} "
             f"{shard:9} {row['acceptance']:13} {row['title'][:70]}"
         )
         if row["acceptance"] in {"error", "no-doit", "no-dodo"} and row["detail"]:
             print(f"{'':8} └─ {row['detail']}")
     summary = data["summary"]
     print(
-        f"\nвсего {summary['total']}: done {summary['done']}, "
+        f"\ntotal {summary['total']}: done {summary['done']}, "
         f"in progress {summary['in_progress']}, to do {summary['todo']}, "
-        f"заблокировано {summary['blocked']}, с неподтверждённой приёмкой {summary['stale']}, "
-        f"с незакрытыми критериями {summary['incomplete']}"
+        f"blocked {summary['blocked']}, stale acceptance {summary['stale']}, "
+        f"unchecked criteria {summary['incomplete']}"
     )
-    print(f"СЛЕДУЮЩАЯ: {data['next'] or '— (нет готовых к работе задач)'}")
+    print(f"NEXT: {data['next'] or '— (no ready tasks)'}")
     return 0
 
 

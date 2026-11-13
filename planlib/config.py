@@ -73,9 +73,9 @@ def _read_table(path: pathlib.Path) -> dict | None:
     try:
         data = _toml.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as error:
-        raise LayoutError(f"{path}: не удалось прочитать конфиг ({error})") from error
+        raise LayoutError(f"{path}: failed to read config ({error})") from error
     except _toml.TOMLDecodeError as error:
-        raise LayoutError(f"{path}: некорректный TOML ({error})") from error
+        raise LayoutError(f"{path}: invalid TOML ({error})") from error
     if path.name == CONFIG_NAME:
         table = data.get("plan-ledger", data)
     else:
@@ -84,15 +84,15 @@ def _read_table(path: pathlib.Path) -> dict | None:
         return None
     unknown = set(table) - set(DEFAULTS)
     if unknown:
-        raise LayoutError(f"{path}: неизвестные ключи [plan-ledger]: {', '.join(sorted(unknown))}")
+        raise LayoutError(f"{path}: unknown [plan-ledger] keys: {', '.join(sorted(unknown))}")
     for key, value in table.items():
         if not isinstance(value, str):
-            raise LayoutError(f"{path}: [plan-ledger].{key} должно быть строкой")
+            raise LayoutError(f"{path}: [plan-ledger].{key} must be a string")
     base = table.get("tasks_base", DEFAULTS["tasks_base"])
     if base not in TASKS_BASES:
         raise LayoutError(
             f"{path}: [plan-ledger].tasks_base = {base!r}; "
-            f"допустимо: {', '.join(TASKS_BASES)}"
+            f"allowed: {', '.join(TASKS_BASES)}"
         )
     return table
 
@@ -127,10 +127,10 @@ def resolve(
     if config is not None:
         config = config.resolve()
         if not config.is_file():
-            raise LayoutError(f"конфиг не найден: {config}")
+            raise LayoutError(f"config not found: {config}")
         table = _read_table(config)
         if table is None:
-            raise LayoutError(f"{config}: нет таблицы [plan-ledger] или [tool.plan-ledger]")
+            raise LayoutError(f"{config}: no [plan-ledger] or [tool.plan-ledger] table")
         found = (config, table)
     else:
         found = find_config(search_start)
@@ -168,14 +168,14 @@ def resolve(
         )
 
     if not layout.root.is_dir():
-        raise LayoutError(f"каталог проекта не найден: {layout.root}")
+        raise LayoutError(f"project directory not found: {layout.root}")
     return layout
 
 
 def add_layout_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--project", type=pathlib.Path, help="каталог состояния (backlog + БД)")
-    parser.add_argument("--root", type=pathlib.Path, help="корень кода (dodo.py и file_dep)")
-    parser.add_argument("--config", type=pathlib.Path, help="явный путь к конфигу")
+    parser.add_argument("--project", type=pathlib.Path, help="state directory (tasks + doit DB)")
+    parser.add_argument("--root", type=pathlib.Path, help="code root (dodo.py and file_dep)")
+    parser.add_argument("--config", type=pathlib.Path, help="explicit config path")
 
 
 def layout_arguments_parent(suppress_defaults: bool = False) -> argparse.ArgumentParser:

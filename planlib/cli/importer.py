@@ -1,16 +1,16 @@
-"""Импорт существующих планов и находок гейта в задачи плана.
+"""Import existing plans and gate findings as plan tasks.
 
-Поддерживает три формата:
-  roadmap  — `## Phase N: … — DONE` с зависимостями и acceptance criteria
-  numbered — `**Статус:**`, `**Приоритет:**`, `**Зависимости:**`, разделы «Что сделать»
-  json     — `--from-json findings.json`: машиночитаемый список находок (lizard/xenon,
-             сложностной гейт), одна задача на находку или на файл/правило
+Supports three formats:
+  roadmap  — `## Phase N: … — DONE` with dependencies and acceptance criteria
+  numbered — `**Status:**`, `**Priority:**`, `**Dependencies:**`, "What to do" sections
+  json     — `--from-json findings.json`: a machine-readable findings list (lizard/xenon,
+             complexity gate), one task per finding or per file/rule
 
-JSON: список объектов или `{"shard": "gate", "findings": [...]}`;
-поля находки — `title`, `message`, `rule`, `file`, `line`, `description`,
-`acceptance` (список), `labels`, `priority`, `id`, `slug`, `reference`.
+JSON: a list of objects or `{"shard": "gate", "findings": [...]}`;
+finding fields — `title`, `message`, `rule`, `file`, `line`, `description`,
+`acceptance` (list), `labels`, `priority`, `id`, `slug`, `reference`.
 
-По умолчанию dry-run; с --apply создаёт задачи через planlib.model.
+Dry-run by default; --apply creates tasks through planlib.model.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class Imported:
 
 
 class JsonImportError(RuntimeError):
-    """Некорректный JSON-отчёт: CLI печатает сообщение и выходит с кодом 3."""
+    """Invalid JSON report: the CLI prints a message and exits with code 3."""
 
 
 def _clean(text: str) -> str:
@@ -182,12 +182,8 @@ JSON_PRIORITIES = {"high", "medium", "low"}
 JSON_GROUPINGS = ("none", "file", "rule")
 
 
-def _plural(count: int, one: str, few: str, many: str) -> str:
-    if count % 10 == 1 and count % 100 != 11:
-        return one
-    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
-        return few
-    return many
+def _findings_word(count: int) -> str:
+    return "finding" if count == 1 else "findings"
 
 
 def _text(value: object) -> str:
@@ -211,11 +207,11 @@ def load_findings(path: pathlib.Path) -> tuple[list[dict], dict]:
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError as error:
-        raise JsonImportError(f"{path}: не удалось прочитать ({error})") from error
+        raise JsonImportError(f"{path}: failed to read ({error})") from error
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as error:
-        raise JsonImportError(f"{path}: некорректный JSON ({error})") from error
+        raise JsonImportError(f"{path}: invalid JSON ({error})") from error
     meta: dict = {}
     if isinstance(data, dict):
         for key in JSON_LIST_KEYS:
@@ -226,10 +222,10 @@ def load_findings(path: pathlib.Path) -> tuple[list[dict], dict]:
         else:
             data = [data]
     if not isinstance(data, list):
-        raise JsonImportError(f"{path}: ожидался список находок или объект с 'findings'")
+        raise JsonImportError(f"{path}: expected a list of findings or an object with 'findings'")
     for number, item in enumerate(data, 1):
         if not isinstance(item, dict):
-            raise JsonImportError(f"{path}: находка #{number} — не объект")
+            raise JsonImportError(f"{path}: finding #{number} is not an object")
     return data, meta
 
 
@@ -265,7 +261,7 @@ def finding_reference(item: dict) -> str:
     if where:
         return where
     rule = _finding_rule(item)
-    return rule or _clean(_finding_message(item)) or "находка"
+    return rule or _clean(_finding_message(item)) or "finding"
 
 
 def finding_title(item: dict) -> str:
@@ -279,7 +275,7 @@ def finding_title(item: dict) -> str:
         elif rule:
             title = rule
         else:
-            title = _where(item) or "находка гейта"
+            title = _where(item) or "gate finding"
     return _clean(title)[:120]
 
 
@@ -289,7 +285,7 @@ def finding_acceptance(item: dict) -> list[str]:
         return acceptance
     where, rule = _where(item), _finding_rule(item)
     target = " ".join(part for part in (rule, where) if part) or finding_reference(item)
-    return [f"находка устранена: {target}"]
+    return [f"finding fixed: {target}"]
 
 
 def finding_labels(item: dict) -> list[str]:
@@ -330,9 +326,9 @@ def _one_finding(item: dict, shard: str | None, labels: list[str]) -> Imported:
     body = [part for part in (_text(item.get("description")), _finding_message(item)) if part]
     rule = _finding_rule(item)
     if where:
-        body.append(f"Источник: {where}" + (f" ({rule})" if rule else ""))
+        body.append(f"Source: {where}" + (f" ({rule})" if rule else ""))
     if not body:
-        body.append(f"Импортировано из отчёта гейта: {reference}")
+        body.append(f"Imported from the gate report: {reference}")
     merged = list(dict.fromkeys([*finding_labels(item), *labels]))
     task_labels = _merge_shard(merged, shard)
     return Imported(
@@ -370,12 +366,10 @@ def _grouped_finding(
 ) -> Imported:
     from planlib import model
 
-    where_label = "файл" if grouping == "file" else "правило"
+    where_label = "file" if grouping == "file" else "rule"
     count = len(members)
-    title = (
-        f"Гейт: {where_label} {key} — {count} {_plural(count, 'находка', 'находки', 'находок')}"
-    )[:120]
-    lines = [f"Импортировано из отчёта гейта ({where_label}: {key}).", "", "Находки:"]
+    title = f"Gate: {where_label} {key} — {count} {_findings_word(count)}"[:120]
+    lines = [f"Imported from the gate report ({where_label}: {key}).", "", "Findings:"]
     acceptance: list[str] = []
     references: list[str] = []
     for item in members:
@@ -386,7 +380,7 @@ def _grouped_finding(
         lines.append(f"- {text}{suffix}")
         references.append(finding_reference(item))
         own = _texts(item.get("acceptance") or item.get("ac") or item.get("criteria"))
-        acceptance.extend(own or [f"находка устранена: {text}{suffix}"])
+        acceptance.extend(own or [f"finding fixed: {text}{suffix}"])
     if grouping == "file":
         slug = _file_slug(key, slug_depth)
     else:
@@ -414,7 +408,7 @@ def from_findings(
 ) -> list[Imported]:
     """Находки → задачи: по одной, по файлу или по правилу."""
     if grouping not in JSON_GROUPINGS:
-        raise JsonImportError(f"неизвестная группировка {grouping!r}: {', '.join(JSON_GROUPINGS)}")
+        raise JsonImportError(f"unknown grouping {grouping!r}: {', '.join(JSON_GROUPINGS)}")
     base_labels = ["gate", *(labels or [])]
     if grouping == "none":
         return [_one_finding(item, shard, base_labels) for item in findings]
@@ -422,7 +416,7 @@ def from_findings(
     groups: dict[str, list[dict]] = {}
     for item in findings:
         key = _finding_file(item) if grouping == "file" else _finding_rule(item)
-        groups.setdefault(key or "прочее", []).append(item)
+        groups.setdefault(key or "other", []).append(item)
     items = [
         _grouped_finding(key, grouping, members, shard, base_labels, slug_depth)
         for key, members in groups.items()
@@ -440,16 +434,18 @@ def parse(path: pathlib.Path) -> tuple[str, list[Imported]]:
         return "roadmap", parse_roadmap(path)
     if re.search(r"\*\*Статус[:\*]", text):
         return "numbered", parse_numbered(path)
-    raise SystemExit(f"неизвестный формат: {path} (нет '## Phase N' и нет '**Статус:**')")
+    raise SystemExit(
+        f"unknown format: {path} (no '## Phase N' and no '**Status:**' / '**Статус:**')"
+    )
 
 
 def description_for(item: Imported) -> str:
     if item.body:
         return item.body
-    lines = [f"Импортировано из {pathlib.Path(item.source).name}."]
+    lines = [f"Imported from {pathlib.Path(item.source).name}."]
     if item.steps:
         lines.append("")
-        lines.append("Шаги:")
+        lines.append("Steps:")
         lines.extend(f"{number}. {step}" for number, step in enumerate(item.steps, 1))
     return "\n".join(lines)
 
@@ -487,56 +483,56 @@ def main(argv: list[str] | None = None) -> int:
         "source",
         nargs="?",
         type=pathlib.Path,
-        help="путь к roadmap или numbered-плану",
+        help="path to a roadmap or numbered plan",
     )
     parser.add_argument(
         "--from-json",
         type=pathlib.Path,
-        help="JSON-отчёт находок гейта (lizard/xenon и подобные)",
+        help="JSON gate-findings report (lizard/xenon and similar)",
     )
-    parser.add_argument("--shard", help="метка shard:<name> для импортируемых задач")
+    parser.add_argument("--shard", help="shard:<name> label for imported tasks")
     parser.add_argument(
         "--group-by",
         choices=list(JSON_GROUPINGS),
         default="none",
-        help="json: одна задача на находку (none), на файл (file) или на правило (rule)",
+        help="json: one task per finding (none), per file (file) or per rule (rule)",
     )
     parser.add_argument(
         "--slug-depth",
         type=int,
         default=0,
         metavar="N",
-        help="json + --group-by file: slug из последних N сегментов пути "
-        "(1 — имя файла; 0 — весь путь)",
+        help="json + --group-by file: slug from the last N path segments "
+        "(1 = file name; 0 = the whole path)",
     )
-    parser.add_argument("--label", action="append", default=[], help="json: дополнительная метка")
+    parser.add_argument("--label", action="append", default=[], help="json: extra label")
     parser.add_argument(
         "--dedupe",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="json: пропускать находки, уже импортированные по reference (по умолчанию да)",
+        help="json: skip findings already imported by reference (default: yes)",
     )
-    parser.add_argument("--apply", action="store_true", help="создать задачи (иначе dry-run)")
+    parser.add_argument("--apply", action="store_true", help="create tasks (otherwise dry-run)")
     enable_utf8()
     args = parser.parse_args(argv)
 
     if bool(args.source) == bool(args.from_json):
-        print("нужен ровно один источник: SOURCE (roadmap/numbered) или --from-json FILE")
+        print("need exactly one source: SOURCE (roadmap/numbered) or --from-json FILE")
         return 2
     if args.slug_depth < 0:
-        print("--slug-depth должен быть >= 0")
+        print("--slug-depth must be >= 0")
         return 2
     if args.from_json is None and (args.group_by != "none" or args.slug_depth):
-        print("--group-by и --slug-depth работают только с --from-json")
+        print("--group-by and --slug-depth work only with --from-json")
         return 2
     if args.slug_depth and args.group_by != "file":
-        print("--slug-depth работает только с --group-by file")
+        print("--slug-depth works only with --group-by file")
         return 2
 
     try:
         layout = layout_from_args(args)
     except LayoutError as error:
-        print(f"ошибка конфига: {error}")
+        print(f"config error: {error}")
         return 3
     tasks = layout.tasks
 
@@ -553,14 +549,14 @@ def main(argv: list[str] | None = None) -> int:
                 slug_depth=args.slug_depth,
             )
         except JsonImportError as error:
-            print(f"ошибка импорта: {error}")
+            print(f"import error: {error}")
             return 3
         count = len(findings)
-        fmt = f"json ({count} {_plural(count, 'находка', 'находки', 'находок')})"
+        fmt = f"json ({count} {_findings_word(count)})"
     else:
         fmt, items = parse(args.source)
 
-    print(f"формат: {fmt}; к созданию: {len(items)}")
+    print(f"format: {fmt}; to create: {len(items)}")
     for item in items:
         extra = f"AC {len(item.acceptance)}"
         if item.task_id:
@@ -569,7 +565,7 @@ def main(argv: list[str] | None = None) -> int:
             extra += f", slug {item.slug}"
         print(f"  - [{item.status}] {item.title} ({extra})")
     if not args.apply:
-        print("\ndry-run: ничего не создано. Повторите с --apply.")
+        print("\ndry-run: nothing was created. Re-run with --apply.")
         return 0
 
     existing = load_tasks(tasks)
@@ -584,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
             and item.references
             and any(ref in existing_refs for ref in item.references)
         ):
-            print(f"  = пропуск (уже импортировано): {item.title[:80]}")
+            print(f"  = skipped (already imported): {item.title[:80]}")
             skipped += 1
             continue
         try:
@@ -599,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
         dependencies = [created[dep] for dep in item.deps if dep in created]
         if dependencies:
             link_dependencies(tasks, created[item.key], dependencies)
-    print(f"\nсоздано задач: {len(created)}, пропущено: {skipped}, ошибок: {failed}")
+    print(f"\ncreated tasks: {len(created)}, skipped: {skipped}, errors: {failed}")
     return 1 if failed else 0
 
 

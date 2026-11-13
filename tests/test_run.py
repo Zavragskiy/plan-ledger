@@ -65,7 +65,7 @@ def test_missing_dodo_is_exit_3(tmp_path, monkeypatch, capsys):
     )
     monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
     assert plan_run.main([]) == 3
-    assert "нет dodo-файла" in capsys.readouterr().out
+    assert "no dodo file" in capsys.readouterr().out
 
 
 def test_all_runs_distinct_shards_from_plan(tmp_path, monkeypatch):
@@ -132,4 +132,4 @@ def test_missing_doit_is_exit_3(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("planlib.cli.run.layout_from_args", lambda args: layout)
     monkeypatch.setattr("planlib.cli.run.doit_executable", lambda layout: None)
     assert plan_run.main(["s1"]) == 3
-    assert "doit не найден" in capsys.readouterr().out
+    assert "doit not found" in capsys.readouterr().out

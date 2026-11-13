@@ -1,7 +1,7 @@
-"""Гейт плана: Done обязан быть и подтверждён приёмкой, и закрыт по критериям.
+"""Plan gate: Done must be proven by acceptance and closed by criteria.
 
-Коды выхода: 0 — чисто, 1 — stale/incomplete, 2 — --strict и непроверенные Done,
-3 — конфиг/пустой план.
+Exit codes: 0 clean, 1 stale/incomplete, 2 --strict with unverified Done,
+3 config error or empty plan.
 """
 
 from __future__ import annotations
@@ -26,16 +26,16 @@ def collect(layout: Layout, tasks) -> list[dict]:
         if task.shard:
             state, state_detail = acceptance_status(layout, task.shard)
         else:
-            state, state_detail = "no-acceptance", "у задачи нет метки shard:<name>"
+            state, state_detail = "no-acceptance", "the task has no shard:<name> label"
         criteria = task.criteria
         unchecked = task.unchecked()
         detail = state_detail
         if task.status == "Done":
             if criteria["total"] and unchecked:
                 verdict = "incomplete"
-                detail = "не отмечены критерии: " + ", ".join(str(number) for number in unchecked)
+                detail = "unchecked criteria: " + ", ".join(str(number) for number in unchecked)
                 if state != "up-to-date":
-                    detail += f"; приёмка {state}"
+                    detail += f"; acceptance {state}"
                     if state_detail:
                         detail += f" ({state_detail})"
             elif state == "up-to-date":
@@ -64,30 +64,30 @@ def collect(layout: Layout, tasks) -> list[dict]:
 def _empty_message(layout: Layout) -> str:
     if not layout.tasks_exist:
         return (
-            f"нет каталога задач: {layout.tasks}\n"
-            "Запустите `plan-init --with-placeholder` (или --allow-empty) "
-            "либо укажите --project/--config."
+            f"no tasks directory: {layout.tasks}\n"
+            "Run `plan-init --with-placeholder` (or --allow-empty) "
+            "or pass --project/--config."
         )
     return (
-        f"в плане нет задач: {layout.tasks}\n"
-        "Это не «зелёный» результат: задачи не найдены. "
-        "Запустите `plan-init --with-placeholder`, `plan-check --allow-empty` "
-        "или проверьте конфиг (--project/--config)."
+        f"the plan has no tasks: {layout.tasks}\n"
+        "This is not a green result: no tasks were found. "
+        "Run `plan-init --with-placeholder`, `plan-check --allow-empty` "
+        "or check the config (--project/--config)."
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, parents=[layout_arguments_parent()])
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--strict", action="store_true", help="непроверенные Done тоже ошибка")
-    parser.add_argument("--allow-empty", action="store_true", help="пустой план не ошибка")
+    parser.add_argument("--strict", action="store_true", help="also fail on unverified Done tasks")
+    parser.add_argument("--allow-empty", action="store_true", help="an empty plan is not an error")
     enable_utf8()
     args = parser.parse_args(argv)
 
     try:
         layout = layout_from_args(args)
     except LayoutError as error:
-        print(f"ошибка конфига: {error}")
+        print(f"config error: {error}")
         return 3
 
     tasks = load_tasks(layout.tasks)
@@ -96,8 +96,8 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     if not tasks:
         print(
-            "предупреждение: пустой план принят по --allow-empty — это не "
-            "подтверждение работы, только обход гейта для bootstrap.",
+            "warning: the empty plan was accepted because of --allow-empty — "
+            "this is not proof of work, only a bootstrap escape hatch.",
             file=sys.stderr,
         )
 
@@ -123,8 +123,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     else:
-        print(f"План: {layout.describe()}")
-        print(f"{'task':8} {'status':12} {'AC':6} {'shard':9} {'приёмка':13} вердикт")
+        print(f"Plan: {layout.describe()}")
+        print(f"{'task':8} {'status':12} {'AC':6} {'shard':9} {'acceptance':13} verdict")
         for row in rows:
             shard = row["shard"] or "-"
             criteria = row["criteria"]
@@ -136,15 +136,15 @@ def main(argv: list[str] | None = None) -> int:
             if row["verdict"] in {"stale", "incomplete"} and row["detail"]:
                 print(f"{'':8} └─ {row['detail']}")
         if stale:
-            print("\nПРОТУХЛО:")
+            print("\nSTALE:")
             for row in stale:
-                print(f" - {row['id']}: Done, но приёмка {row['shard']} не подтверждена")
+                print(f" - {row['id']}: Done, but acceptance {row['shard']} is not confirmed")
         if incomplete:
-            print("\nНЕПОЛНЫЕ (Done с незакрытыми критериями):")
+            print("\nINCOMPLETE (Done with unchecked criteria):")
             for row in incomplete:
                 print(f" - {row['id']}: {row['detail']}")
         if unverified:
-            print("\nБЕЗ ПРИЁМКИ (историческое, не блокирует без --strict):")
+            print("\nUNVERIFIED (historical, not blocking without --strict):")
             for row in unverified:
                 print(f" - {row['id']}: {row['title'][:60]}")
 

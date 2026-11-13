@@ -1,9 +1,9 @@
-"""`plan-shard`: какие шарды объявлены в dodo.py и какие задачи на них ссылаются.
+"""`plan-shard`: which shards dodo.py declares and which tasks reference them.
 
-Примеры:
-  plan-shard list           # таблица: шард, приёмка, задачи
-  plan-shard list --strict  # exit 1, если есть шард без задачи или задача без шарда
-  plan-shard list --json    # то же для агента
+Examples:
+  plan-shard list           # table: shard, acceptance, tasks
+  plan-shard list --strict  # exit 1 on a shard without tasks or a task without a shard
+  plan-shard list --json    # the same for agents
 """
 
 from __future__ import annotations
@@ -20,13 +20,6 @@ from planlib.config import (
 )
 from planlib.console import enable_utf8
 from planlib.shards import declared
-
-VIOLATION_LABELS = {
-    "empty-shard": "шард без задач",
-    "unknown-shard": "шард отсутствует в dodo.py",
-    "unlinked-task": "задача без метки shard",
-}
-
 
 def build(layout: Layout) -> dict:
     tasks = load_tasks(layout.tasks)
@@ -91,10 +84,10 @@ def build(layout: Layout) -> dict:
 
 def _violation_text(violation: dict[str, str]) -> str:
     if violation["kind"] == "empty-shard":
-        return f"шард {violation['shard']}: нет ни одной задачи"
+        return f"shard {violation['shard']}: no tasks"
     if violation["kind"] == "unknown-shard":
-        return f"шард {violation['shard']}: задачи ссылаются, но в dodo.py его нет"
-    return f"{violation['id']}: нет метки shard:<name>"
+        return f"shard {violation['shard']}: tasks reference it, but dodo.py has no such shard"
+    return f"{violation['id']}: no shard:<name> label"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -102,12 +95,12 @@ def main(argv: list[str] | None = None) -> int:
     sub_flags = layout_arguments_parent(suppress_defaults=True)
     parser = argparse.ArgumentParser(prog="plan-shard", description=__doc__, parents=[top])
     sub = parser.add_subparsers(dest="command", required=True)
-    listing = sub.add_parser("list", parents=[sub_flags], help="шарды dodo.py и их задачи")
+    listing = sub.add_parser("list", parents=[sub_flags], help="dodo.py shards and their tasks")
     listing.add_argument("--json", action="store_true")
     listing.add_argument(
         "--strict",
         action="store_true",
-        help="exit 1 при нарушениях гигиены: шард без задачи, задача без шарда",
+        help="exit 1 on hygiene violations: a shard without tasks, a task without a shard",
     )
 
     enable_utf8()
@@ -115,16 +108,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         layout = layout_from_args(args)
     except LayoutError as error:
-        print(f"ошибка конфига: {error}")
+        print(f"config error: {error}")
         return 3
     if not layout.dodo.is_file():
-        print(f"нет dodo-файла: {layout.dodo}")
+        print(f"no dodo file: {layout.dodo}")
         return 3
 
     try:
         data = build(layout)
     except (OSError, SyntaxError) as error:
-        print(f"не удалось прочитать dodo.py: {error}")
+        print(f"failed to read dodo.py: {error}")
         return 3
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -132,29 +125,29 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
 
-    print(f"План: {layout.describe()}")
+    print(f"Plan: {layout.describe()}")
     print(f"dodo: {layout.dodo} ({data['source']})")
-    print(f"{'shard':12} {'приёмка':13} задачи")
+    print(f"{'shard':12} {'acceptance':13} tasks")
     for row in data["shards"]:
         tasks = ", ".join(row["tasks"]) or "—"
         if not row["in_dodo"]:
-            tasks += "  (нет в dodo.py)"
+            tasks += "  (not in dodo.py)"
         print(f"{row['name']:12} {row['acceptance']:13} {tasks}")
         if row["detail"] and row["acceptance"] in {"error", "no-dodo", "no-doit"}:
             print(f"{'':12} └─ {row['detail']}")
     for item in data["unlinked_tasks"]:
-        print(f"{'—':12} {'—':13} {item['id']} (без метки shard)")
+        print(f"{'—':12} {'—':13} {item['id']} (no shard label)")
 
     violations = data["violations"]
     if violations:
-        print("\nНАРУШЕНИЯ ГИГИЕНЫ:")
+        print("\nHYGIENE VIOLATIONS:")
         for violation in violations:
             print(f" - {_violation_text(violation)}")
     covered = sum(1 for row in data["shards"] if row["tasks"])
     print(
-        f"\nшардов в dodo.py: {sum(1 for row in data['shards'] if row['in_dodo'])}, "
-        f"с задачами: {covered}, задач без шарда: {len(data['unlinked_tasks'])}, "
-        f"нарушений: {len(violations)}"
+        f"\nshards in dodo.py: {sum(1 for row in data['shards'] if row['in_dodo'])}, "
+        f"with tasks: {covered}, tasks without a shard: {len(data['unlinked_tasks'])}, "
+        f"violations: {len(violations)}"
     )
     if args.strict and violations:
         return 1

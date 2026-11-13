@@ -1,12 +1,12 @@
-"""`plan-task`: создание и правка задач плана без внешнего трекера.
+"""`plan-task`: create and edit plan tasks without an external tracker.
 
-Раскладка берётся из конфига (plan-ledger.toml / pyproject) или из --project.
-Примеры:
+The layout comes from the config (plan-ledger.toml / pyproject) or --project.
+Examples:
   plan-task list
-  plan-task new "s4: кэш спектров" --ac "pytest tests/test_cache.py" --shard s4
-  plan-task new "Убрать файловые исключения" --id QUALITY-GATE --slug quality-gate --shard gate
+  plan-task new "s4: spectrum cache" --ac "pytest tests/test_cache.py" --shard s4
+  plan-task new "Remove complexity exclusions" --id QUALITY-GATE --slug quality-gate --shard gate
   plan-task set TASK-4 --status "In Progress" --if-status "To Do"
-  plan-task set quality-gate --slug quality-gate-v2        # переименовать файл
+  plan-task set quality-gate --slug quality-gate-v2        # rename the file
   plan-task list --project .planlib
 """
 
@@ -33,7 +33,7 @@ def _with_shard(labels: list[str], value: str) -> list[str]:
     name = value.strip()
     if not SHARD.fullmatch(name):
         raise ValueError(
-            f"шард {value!r}: одно слово из латиницы, цифр, '.', '_', '-'"
+            f"shard {value!r}: one token of ASCII letters, digits, '.', '_' and '-'"
         )
     rest = [label for label in labels if not label.startswith("shard:")]
     return rest + [f"shard:{name}"]
@@ -50,7 +50,7 @@ def _indices(values: list[str]) -> list[int]:
             try:
                 result.append(int(part))
             except ValueError as error:
-                raise SystemExit(f"не число: {part!r}") from error
+                raise SystemExit(f"not a number: {part!r}") from error
     return result
 
 
@@ -76,46 +76,47 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="plan-task", description=__doc__, parents=[top])
     sub = parser.add_subparsers(dest="command", required=True)
 
-    listing = sub.add_parser("list", parents=[sub_flags], help="список задач")
+    listing = sub.add_parser("list", parents=[sub_flags], help="list tasks")
     listing.add_argument("--status")
     listing.add_argument("--json", action="store_true")
 
-    new = sub.add_parser("new", parents=[sub_flags], help="создать задачу")
+    new = sub.add_parser("new", parents=[sub_flags], help="create a task")
     new.add_argument("title")
     new.add_argument("-d", "--description", default="")
-    new.add_argument("--ac", action="append", default=[], help="критерий приёмки (можно несколько)")
+    new.add_argument("--ac", action="append", default=[], help="acceptance criterion (repeatable)")
     new.add_argument("-l", "--label", action="append", default=[])
-    new.add_argument("--shard", help="метка shard:<name>; то же, что -l shard:<name>")
+    new.add_argument("--shard", help="shard:<name> label; same as -l shard:<name>")
     new.add_argument("--dep", action="append", default=[])
     new.add_argument("--priority", choices=["high", "medium", "low"])
     new.add_argument("--status", default=model.STATUSES[0], choices=model.STATUSES)
     new.add_argument("--owner")
-    new.add_argument("--id", dest="task_id", help="явный id вместо TASK-N (например QUALITY-GATE)")
+    new.add_argument("--id", dest="task_id", help="explicit id instead of TASK-N (e.g. QUALITY-GATE)")
     new.add_argument(
         "--slug",
-        help="имя файла без .md вместо транслитерации заголовка (латиница, цифры, '.', '_', '-')",
+        help="file stem without .md instead of transliterating the title "
+        "(ASCII letters, digits, '.', '_', '-')",
     )
 
-    edit = sub.add_parser("set", parents=[sub_flags], help="изменить задачу (CAS через --if-status)")
+    edit = sub.add_parser("set", parents=[sub_flags], help="edit a task (CAS via --if-status)")
     edit.add_argument("task_id")
     edit.add_argument("--status", choices=model.STATUSES)
-    edit.add_argument("--if-status", help="менять только если текущий статус ровно такой")
+    edit.add_argument("--if-status", help="change only if the current status is exactly this")
     edit.add_argument("--owner")
     edit.add_argument("--priority", choices=["high", "medium", "low"])
     edit.add_argument("--label", action="append", default=[])
-    edit.add_argument("--shard", help="заменить метку shard:<name> (прочие метки не трогает)")
-    edit.add_argument("--slug", help="переименовать файл задачи; пустая строка — снять slug")
+    edit.add_argument("--shard", help="replace the shard:<name> label (other labels stay)")
+    edit.add_argument("--slug", help="rename the task file; an empty string clears the slug")
     edit.add_argument("--dep", action="append", default=[])
     edit.add_argument("--note", action="append", default=[])
     edit.add_argument("--check-ac", action="append", default=[], metavar="N",
-                      help="отметить критерий N; можно повторять или через запятую: 1,2,3")
+                      help="check criterion N; repeat or use a comma list: 1,2,3")
     edit.add_argument("--uncheck-ac", action="append", default=[], metavar="N",
-                      help="снять отметку с критерия N; можно повторять или через запятую")
+                      help="uncheck criterion N; repeat or use a comma list")
     edit.add_argument("--description")
     edit.add_argument("--force", action="store_true",
-                      help="разрешить Done, даже если отмечены не все критерии")
+                      help="allow Done even when not every criterion is checked")
 
-    show = sub.add_parser("show", parents=[sub_flags], help="показать задачу")
+    show = sub.add_parser("show", parents=[sub_flags], help="show a task")
     show.add_argument("task_id")
     show.add_argument("--json", action="store_true")
 
@@ -124,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         layout = layout_from_args(args)
     except LayoutError as error:
-        print(f"ошибка конфига: {error}")
+        print(f"config error: {error}")
         return 3
     tasks = layout.tasks
 
@@ -177,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
                 slug=args.slug,
             )
         except ValueError as error:
-            print(f"отказ: {error}")
+            print(f"refused: {error}")
             return 1
         _print_task(task, layout)
         return 0
@@ -210,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
 
     task = model.find(tasks, args.task_id)
     if args.if_status and task.status != args.if_status:
-        print(f"отказ: {task.id} в статусе '{task.status}', ожидался '{args.if_status}'")
+        print(f"refused: {task.id} is in status '{task.status}', expected '{args.if_status}'")
         return 1
     if args.status:
         task.status = args.status
@@ -227,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             task.labels = _with_shard(task.labels, args.shard)
         except ValueError as error:
-            print(f"отказ: {error}")
+            print(f"refused: {error}")
             return 1
     if args.slug is not None:
         slug = args.slug.strip() or None
@@ -235,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
             if slug:
                 model.validate_slug(slug)
         except ValueError as error:
-            print(f"отказ: {error}")
+            print(f"refused: {error}")
             return 1
         task.slug = slug
     for dependency in args.dep:
@@ -249,31 +250,31 @@ def main(argv: list[str] | None = None) -> int:
         try:
             task.check(index)
         except ValueError as error:
-            print(f"отказ: {error}")
+            print(f"refused: {error}")
             return 1
     for index in uncheck_indices:
         try:
             task.uncheck(index)
         except ValueError as error:
-            print(f"отказ: {error}")
+            print(f"refused: {error}")
             return 1
     if args.status == "Done" and not args.force and task.unchecked():
         numbers = ", ".join(str(number) for number in task.unchecked())
         print(
-            f"отказ: у {task.id} не отмечены критерии {numbers} "
-            "(--force, чтобы записать Done всё равно)"
+            f"refused: {task.id} has unchecked criteria {numbers} "
+            "(use --force to record Done anyway)"
         )
         return 1
     try:
         path = model.save(task, tasks)
     except ValueError as error:
-        print(f"отказ: {error}")
+        print(f"refused: {error}")
         return 1
     try:
         shown = path.relative_to(layout.root).as_posix()
     except ValueError:
         shown = str(path)
-    print(f"{task.id} сохранён ({task.status}) → {shown}")
+    print(f"{task.id} saved ({task.status}) → {shown}")
     return 0
 
 

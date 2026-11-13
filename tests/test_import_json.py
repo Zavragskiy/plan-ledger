@@ -35,7 +35,7 @@ def test_dry_run_creates_nothing(tmp_path, capsys):
     path = report(tmp_path, FINDINGS)
     assert importer.main(["--from-json", str(path), "--project", str(tmp_path)]) == 0
     assert not (tmp_path / "backlog" / "tasks").exists()
-    assert "к созданию: 3" in capsys.readouterr().out
+    assert "to create: 3" in capsys.readouterr().out
 
 
 def test_apply_creates_tasks_with_shard_and_references(tmp_path):
@@ -54,7 +54,7 @@ def test_apply_creates_tasks_with_shard_and_references(tmp_path):
     assert "rule:C901" in first.labels
     assert first.references == ["src/app.py:12"]
     assert first.title == "C901: complexity 14 > 10"
-    assert first.acceptance == [(False, "находка устранена: C901 src/app.py:12")]
+    assert first.acceptance == [(False, "finding fixed: C901 src/app.py:12")]
     second = created[1]
     assert second.acceptance == [(False, "app.py разбит на модули")]
 
@@ -66,7 +66,7 @@ def test_second_apply_is_idempotent(tmp_path, capsys):
     capsys.readouterr()
     assert importer.main(args) == 0
     output = capsys.readouterr().out
-    assert "пропущено: 3" in output
+    assert "skipped: 3" in output
     assert len(tasks(tmp_path)) == 3
 
 
@@ -216,7 +216,7 @@ def test_invalid_json_is_exit_3(tmp_path, capsys):
     path = tmp_path / "broken.json"
     path.write_text("{nope", encoding="utf-8")
     assert importer.main(["--from-json", str(path), "--project", str(tmp_path)]) == 3
-    assert "некорректный JSON" in capsys.readouterr().out
+    assert "invalid JSON" in capsys.readouterr().out
 
 
 def test_both_sources_is_refused(tmp_path, capsys):
@@ -227,9 +227,9 @@ def test_both_sources_is_refused(tmp_path, capsys):
         )
         == 2
     )
-    assert "ровно один источник" in capsys.readouterr().out
+    assert "exactly one source" in capsys.readouterr().out
 
 
 def test_no_source_is_refused(tmp_path, capsys):
     assert importer.main(["--project", str(tmp_path)]) == 2
-    assert "ровно один источник" in capsys.readouterr().out
+    assert "exactly one source" in capsys.readouterr().out

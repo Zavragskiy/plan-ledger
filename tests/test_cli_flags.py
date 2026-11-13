@@ -46,7 +46,7 @@ def test_status_project_flag_anywhere(tmp_path):
     for args in (["--project", str(tmp_path)], ["--project=" + str(tmp_path)]):
         result = run("planlib.cli.status", args)
         assert result.returncode == 0, result.stderr
-        assert "СЛЕДУЮЩАЯ: TASK-1" in result.stdout
+        assert "NEXT: TASK-1" in result.stdout
 
 
 def test_check_project_flag(tmp_path):
@@ -94,7 +94,7 @@ def test_out_of_range_is_clean_error_and_file_unchanged(tmp_path):
     make_criteria_project(tmp_path)
     result = run("planlib.cli.task", ["set", "TASK-1", "--check-ac", "9", "--project", str(tmp_path)])
     assert result.returncode == 1
-    assert "критерия №9" in result.stdout
+    assert "acceptance criterion #9" in result.stdout
     assert criteria_state(tmp_path) == [False, False, False]
 
 

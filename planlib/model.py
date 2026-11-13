@@ -67,7 +67,10 @@ class Task:
 
     def _validate_index(self, index: int) -> None:
         if not 1 <= index <= len(self.acceptance):
-            raise ValueError(f"критерия №{index} нет: в задаче {len(self.acceptance)}")
+            raise ValueError(
+                f"acceptance criterion #{index} does not exist: "
+                f"the task has {len(self.acceptance)}"
+            )
 
     @property
     def criteria(self) -> dict[str, int]:
@@ -131,8 +134,8 @@ TASK_SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 def validate_id(task_id: str) -> str:
     if not TASK_ID.fullmatch(task_id):
         raise ValueError(
-            f"id {task_id!r}: допустимы латиница, цифры, '.', '_', '-', "
-            "первый символ — буква или цифра"
+            f"id {task_id!r}: ASCII letters, digits, '.', '_' and '-' are allowed; "
+            "the first character must be a letter or a digit"
         )
     return task_id
 
@@ -140,7 +143,7 @@ def validate_id(task_id: str) -> str:
 def validate_slug(slug: str) -> str:
     if not TASK_SLUG.fullmatch(slug):
         raise ValueError(
-            f"slug {slug!r}: допустимы строчные латинские буквы, цифры, '.', '_', '-'"
+            f"slug {slug!r}: lowercase ASCII letters, digits, '.', '_' and '-' are allowed"
         )
     return slug
 
@@ -156,7 +159,7 @@ def parse(path: pathlib.Path) -> Task:
     text = path.read_text(encoding="utf-8")
     match = FRONT_MATTER.match(text)
     if not match:
-        raise ValueError(f"{path}: нет YAML frontmatter")
+        raise ValueError(f"{path}: no YAML frontmatter")
     meta = yaml.safe_load(match.group(1)) or {}
     body = HTML_COMMENT.sub("", text[match.end() :])
     description, plan, notes = "", "", []
@@ -220,7 +223,7 @@ def find(tasks: pathlib.Path, task_id: str) -> Task:
         by_slug = bool(task.slug) and task.slug.lower() == wanted
         if by_id or by_slug:
             return task
-    raise SystemExit(f"задача {task_id} не найдена в {pathlib.Path(tasks)}")
+    raise SystemExit(f"task {task_id} not found in {pathlib.Path(tasks)}")
 
 
 def next_id(tasks: pathlib.Path) -> str:
@@ -245,12 +248,12 @@ def save(task: Task, tasks: pathlib.Path) -> pathlib.Path:
         path = root / file_name(task)
     if existing is not None and existing.exists() and path.resolve() != existing.resolve():
         if path.exists():
-            raise ValueError(f"файл {path.name} уже занят другой задачей")
+            raise ValueError(f"file {path.name} is already used by another task")
         path.write_text(task.to_markdown(), encoding="utf-8")
         existing.unlink()
     else:
         if existing is None and path.exists():
-            raise ValueError(f"файл {path.name} уже существует")
+            raise ValueError(f"file {path.name} already exists")
         path.write_text(task.to_markdown(), encoding="utf-8")
     task.path = path  # type: ignore[attr-defined]
     return path
@@ -274,11 +277,11 @@ def create(
     if task_id is not None:
         validate_id(task_id)
         if any(item.id.lower() == task_id.lower() for item in load_tasks(tasks)):
-            raise ValueError(f"задача с id {task_id} уже есть")
+            raise ValueError(f"a task with id {task_id} already exists")
     if slug is not None:
         validate_slug(slug)
         if (pathlib.Path(tasks) / f"{slug}.md").exists():
-            raise ValueError(f"файл {slug}.md уже существует")
+            raise ValueError(f"file {slug}.md already exists")
     task = Task(
         id=task_id or next_id(tasks),
         title=title,

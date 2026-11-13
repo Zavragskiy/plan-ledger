@@ -1,4 +1,4 @@
-"""Разведка MCP-сервера backlog-py-mcp: какие инструменты он отдаёт агенту."""
+"""Probe the backlog-py-mcp MCP server: which tools it exposes to an agent."""
 
 from __future__ import annotations
 
@@ -21,14 +21,14 @@ def read_until(process: subprocess.Popen, wanted_id: int, limit: int = 50) -> di
     for _ in range(limit):
         line = process.stdout.readline()
         if not line:
-            raise SystemExit("сервер закрыл stdout")
+            raise SystemExit("the server closed stdout")
         try:
             message = json.loads(line)
         except json.JSONDecodeError:
             continue
         if message.get("id") == wanted_id:
             return message
-    raise SystemExit(f"ответ на id={wanted_id} не получен")
+    raise SystemExit(f"no response for id={wanted_id}")
 
 
 def main() -> int:
@@ -36,7 +36,7 @@ def main() -> int:
 
     enable_utf8()
     if not BIN.exists():
-        raise SystemExit(f"нет {BIN}; поставь: uv tool install backlog-md-py==2.2.0")
+        raise SystemExit(f"{BIN} not found; install it: uv tool install backlog-md-py==2.2.0")
     process = subprocess.Popen(
         [str(BIN)],
         stdin=subprocess.PIPE,
@@ -64,12 +64,14 @@ def main() -> int:
         send(process, {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
         send(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         tools = read_until(process, 2).get("result", {}).get("tools", [])
-        print(f"\nинструментов: {len(tools)}")
+        print(f"\ntools: {len(tools)}")
         for tool in tools:
             description = (tool.get("description") or "").splitlines()[0][:90]
             print(f"  {tool['name']:24} {description}")
         schema_bytes = len(json.dumps(tools, ensure_ascii=False).encode("utf-8"))
-        print(f"\nсхемы занимают ~{schema_bytes / 1024:.1f} КБ в каждом запросе (если MCP включён)")
+        print(
+            f"\nschemas take ~{schema_bytes / 1024:.1f} KB in every request (with MCP enabled)"
+        )
     finally:
         process.kill()
     return 0

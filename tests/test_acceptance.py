@@ -57,7 +57,7 @@ def test_changed_paths_are_relative(tmp_path, monkeypatch):
     fake_run(monkeypatch, stdout=stdout)
     state, detail = acceptance_status(layout, "s1")
     assert state == "run"
-    assert detail == "изменились: src/app.py"
+    assert detail == "changed: src/app.py"
 
 
 def test_missing_deps_are_error(tmp_path, monkeypatch):
@@ -130,7 +130,7 @@ def test_long_changed_list_is_truncated(tmp_path, monkeypatch):
     assert state == "run"
     assert "src/f0.py" in detail
     assert "src/f10.py" not in detail
-    assert "… и ещё 240" in detail
+    assert "… and 240 more" in detail
 
 
 def test_missing_list_is_truncated_too(tmp_path, monkeypatch):
@@ -143,4 +143,4 @@ def test_missing_list_is_truncated_too(tmp_path, monkeypatch):
     fake_run(monkeypatch, stdout=stdout)
     state, detail = acceptance_status(layout, "s1")
     assert state == "error"
-    assert "… и ещё 10" in detail
+    assert "… and 10 more" in detail

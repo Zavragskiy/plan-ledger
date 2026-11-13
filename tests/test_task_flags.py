@@ -57,7 +57,7 @@ def test_duplicate_id_is_refused(tmp_path, monkeypatch, capsys):
     assert plan_task.main(["new", "one", "--id", "QUALITY-GATE"]) == 0
     capsys.readouterr()
     assert plan_task.main(["new", "two", "--id", "QUALITY-GATE"]) == 1
-    assert "уже есть" in capsys.readouterr().out
+    assert "already exists" in capsys.readouterr().out
     assert len(model.load_tasks(tasks_dir(tmp_path))) == 1
 
 
@@ -105,5 +105,5 @@ def test_rename_into_existing_file_is_refused(tmp_path, monkeypatch, capsys):
     plan_task.main(["new", "two"])
     capsys.readouterr()
     assert plan_task.main(["set", "TASK-2", "--slug", "taken"]) == 1
-    assert "уже" in capsys.readouterr().out
+    assert "already used" in capsys.readouterr().out
     assert len(list(tasks_dir(tmp_path).glob("*.md"))) == 2

@@ -48,7 +48,7 @@ def command(layout: Layout, executable: str, action: str, *tasks: str) -> list[s
 def run(layout: Layout, action: str, *tasks: str) -> subprocess.CompletedProcess:
     executable = doit_executable(layout)
     if executable is None:
-        raise FileNotFoundError("doit не найден: установите его в окружение plan-ledger")
+        raise FileNotFoundError("doit not found: install it into the plan-ledger environment")
     return subprocess.run(
         command(layout, executable, action, *tasks),
         cwd=layout.root,

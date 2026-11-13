@@ -30,7 +30,7 @@ def test_second_run_is_idempotent(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     assert plan_init.main([]) == 0
     assert (tmp_path / "dodo.py").read_text(encoding="utf-8") == before
-    assert "уже есть" in capsys.readouterr().out
+    assert "already exists" in capsys.readouterr().out
 
 
 def test_pyproject_mode_appends_table(tmp_path, monkeypatch):
@@ -121,4 +121,4 @@ def test_state_outside_root_is_error(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "sub").mkdir()
     assert plan_init.main(["--root", "sub", "--state", "state"]) == 3
-    assert "внутри" in capsys.readouterr().out
+    assert "must be inside" in capsys.readouterr().out

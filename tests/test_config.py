@@ -96,13 +96,13 @@ def test_legacy_layout_without_config(tmp_path):
 
 def test_unknown_key_is_error(tmp_path):
     (tmp_path / "plan-ledger.toml").write_text('[plan-ledger]\nfoo = "bar"\n', encoding="utf-8")
-    with pytest.raises(LayoutError, match="неизвестные ключи"):
+    with pytest.raises(LayoutError, match="unknown"):
         resolve(start=tmp_path)
 
 
 def test_broken_toml_is_error(tmp_path):
     (tmp_path / "plan-ledger.toml").write_text("[plan-ledger\n", encoding="utf-8")
-    with pytest.raises(LayoutError, match="некорректный TOML"):
+    with pytest.raises(LayoutError, match="invalid TOML"):
         resolve(start=tmp_path)
 
 
@@ -114,5 +114,5 @@ def test_explicit_config(tmp_path):
 
 
 def test_missing_config_file_is_error(tmp_path):
-    with pytest.raises(LayoutError, match="конфиг не найден"):
+    with pytest.raises(LayoutError, match="config not found"):
         resolve(config=tmp_path / "nope.toml", start=tmp_path)

@@ -86,8 +86,8 @@ def test_main_prints_missing_shard_note(tmp_path, monkeypatch, capsys):
     assert plan_shard.main(["list"]) == 0
     output = capsys.readouterr().out
     assert "s1" in output and "TASK-1" in output
-    assert "нет в dodo.py" in output
-    assert "без метки shard" in output
+    assert "not in dodo.py" in output
+    assert "no shard label" in output
 
 
 def test_main_json(tmp_path, monkeypatch, capsys):
@@ -120,10 +120,10 @@ def test_strict_lists_hygiene_violations(tmp_path, monkeypatch, capsys):
 
     assert plan_shard.main(["list", "--strict"]) == 1
     output = capsys.readouterr().out
-    assert "НАРУШЕНИЯ ГИГИЕНЫ" in output
-    assert "шард s2: нет ни одной задачи" in output
-    assert "шард nosuch" in output
-    assert "TASK-4: нет метки shard" in output
+    assert "HYGIENE VIOLATIONS" in output
+    assert "shard s2: no tasks" in output
+    assert "shard nosuch" in output
+    assert "TASK-4: no shard" in output
 
 
 def test_strict_clean_plan_is_zero(tmp_path, monkeypatch):
@@ -153,4 +153,4 @@ def test_missing_dodo_is_exit_3(tmp_path, monkeypatch, capsys):
     layout.dodo.unlink()
     monkeypatch.setattr(plan_shard, "layout_from_args", lambda args: layout)
     assert plan_shard.main(["list"]) == 3
-    assert "нет dodo-файла" in capsys.readouterr().out
+    assert "no dodo file" in capsys.readouterr().out

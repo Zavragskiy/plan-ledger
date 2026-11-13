@@ -1,4 +1,4 @@
-"""Скрейпит планы и таски проектов в локальный каталог примеров и пишет MANIFEST.md."""
+"""Scrape plans and tasks from local projects into examples/ and write MANIFEST.md."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         "--projects",
         type=pathlib.Path,
         default=pathlib.Path(os.environ.get("PLAN_PROJECTS", pathlib.Path.cwd())),
-        help="каталог с репозиториями (или переменная PLAN_PROJECTS)",
+        help="directory with repositories (or the PLAN_PROJECTS environment variable)",
     )
     parser.add_argument("--out", type=pathlib.Path, default=ROOT / "examples" / "local")
     enable_utf8()
@@ -77,10 +77,13 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copyfile(path, destination)
         rows.append((project.as_posix(), relative.as_posix(), kind, size, title))
 
-    manifest = ["# Примеры планов и тасок из реальных репозиториев", ""]
-    manifest.append(f"Источник: `{args.projects}`. Файлов: **{len(rows)}**. Пересобрать: `python scrape_plans.py`.")
+    manifest = ["# Plan and task examples from real repositories", ""]
+    manifest.append(
+        f"Source: `{args.projects}`. Files: **{len(rows)}**. "
+        "Rebuild: `python scrape_plans.py`."
+    )
     manifest.append("")
-    manifest.append("| Проект | Файл | Тип | КБ | Заголовок |")
+    manifest.append("| Project | File | Kind | KB | Title |")
     manifest.append("|---|---|---|---:|---|")
     for project, relative, kind, size, title in rows:
         manifest.append(f"| {project} | `{relative}` | {kind} | {size / 1024:.1f} | {title} |")
@@ -89,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     by_kind: dict[str, int] = {}
     for row in rows:
         by_kind[row[2]] = by_kind.get(row[2], 0) + 1
-    print(f"скопировано {len(rows)} файлов в {args.out}")
+    print(f"copied {len(rows)} files to {args.out}")
     for kind, count in sorted(by_kind.items(), key=lambda pair: -pair[1]):
         print(f"  {kind:14} {count}")
     return 0
