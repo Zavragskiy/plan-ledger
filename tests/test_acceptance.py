@@ -21,6 +21,7 @@ def layout_for(tmp_path: pathlib.Path) -> Layout:
         db=tmp_path / ".doit.db",
     )
     layout.dodo.write_text("def task_s1():\n    return {}\n", encoding="utf-8")
+    layout.db.write_text("", encoding="utf-8")
     return layout
 
 

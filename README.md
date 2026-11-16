@@ -18,7 +18,7 @@ doit acceptance ─┘   plan-check    → is every "Done" actually proven?
 ```bash
 poetry add --editable /path/to/plan-ledger   # development
 # or
-poetry build && poetry add dist/plan_ledger-0.5.0-py3-none-any.whl
+poetry build && poetry add dist/plan_ledger-0.5.1-py3-none-any.whl
 ```
 
 Python `>=3.10`; dependencies `pyyaml`, `doit`, and `tomli` on 3.10.
@@ -69,7 +69,7 @@ before or after a subcommand.
 | `plan-init [--state .planlib] [--tasks-base state] [--with-placeholder] [--config pyproject] [--dry-run]` | scaffold state, config, `dodo.py`, `.gitignore` |
 | `plan-task list [--status S] [--json]` | list tasks |
 | `plan-task new TITLE [-d DESC] [--ac …] [--shard gate] [--id ID] [--slug NAME] [--dep ID]` | create a task |
-| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--shard NAME] [--slug NAME] [--check-ac N[,N…]] [--outcome TEXT] [--decision …] [--followup …] [--files …] [--tests …] [--force]` | edit, with compare-and-set and the closeout envelope |
+| `plan-task set ID [--status S] [--if-status EXPECTED] [--owner O] [--note …] [--shard NAME] [--slug NAME] [--check-ac N[,N…]] [--ac-text N TEXT] [--ac-replace OLD NEW] [--outcome TEXT] [--decision …] [--followup …] [--files …] [--tests …] [--refresh-evidence] [--force]` | edit, with compare-and-set, the closeout envelope and acceptance-text edits |
 | `plan-status [--json] [--open] [--with-detail]` | statuses, readiness, acceptance, next task |
 | `plan-digest [--json] [--limit N] [--active] [--status S] [--since 90d] [--task ID] [--with-detail]` | compact snapshot for agents: one line per task, totals always |
 | `plan-run [SHARD …] [--all] [--done] [--quiet]` | run acceptance with the same `-f/-d/--db-file` that the gate uses; `--all` covers `dodo.py`, `--done` re-proves the closed set |
@@ -160,8 +160,13 @@ plan-task set TASK-3 --status Done --check-ac 1,2 \
 - `closed_date` is written exactly on that transition and never moved by later edits
   (`updated_date` keeps its old meaning); retention and `plan-digest --since` read it.
 - Re-confirming `Done` with any closeout flag **replaces** the block instead of appending.
-- `evidence` is `{shard, result, commit}`: the acceptance state at close time plus the short HEAD;
-  `commit` is omitted outside a git checkout.
+- `evidence` is `{shard, result, head_at_close}`: the acceptance state at close time plus the short
+  HEAD **at the moment of closing** — this is not the commit that carries the closeout (that commit
+  does not exist yet), so `head_at_close` names the parent; `head_at_close` is omitted outside a git
+  checkout. `plan-task set ID --refresh-evidence` recomputes it later, e.g. after the closeout commit
+  lands, without touching the status or the rest of the block.
+- `## Notes` is preserved verbatim: hand-written paragraphs, `**emphasis**`, lists and blank lines
+  survive `plan-task set`, and `--note` appends a bullet at the end of the section.
 - The gate reports `no-closeout` as a separate non-blocking class: historical `Done` tasks are not
   rewritten, and `plan-check --strict` turns the class into exit 2.
 - `plan-task show` prints the block; `plan-task list --json` carries `outcome` and `closed_date`.
@@ -273,6 +278,9 @@ Wire `plan-check` into pre-commit; [`.pre-commit-config.yaml`](.pre-commit-confi
   it in full.
 - A failing acceptance prints one error line (`ValueError: …`, `ERROR: …`) instead of a traceback
   tail; a shard missing from `dodo.py` is reported as `unknown`, not as a crash.
+- When the doit database does not exist at all (fresh clone, CI without `plan-run`), the detail says
+  `no acceptance in this environment: <shard> has no doit database` instead of listing every source
+  file as changed. The verdict stays `stale`: the shard is still unproven, only the reason is named.
 
 ## Layout of this repository
 

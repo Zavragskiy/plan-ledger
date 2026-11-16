@@ -51,6 +51,18 @@ def _git_commit(layout: Layout) -> str | None:
     return value if result.returncode == 0 and value else None
 
 
+def _evidence(layout: Layout, task: model.Task) -> dict[str, str]:
+    """{shard, result, head_at_close}: HEAD на момент закрытия, не коммит изменения."""
+    evidence: dict[str, str] = {}
+    if task.shard:
+        evidence["shard"] = task.shard
+        evidence["result"] = acceptance_state(layout, task.shard)
+    commit = _git_commit(layout)
+    if commit:
+        evidence["head_at_close"] = commit
+    return evidence
+
+
 def _closeout(layout: Layout, task: model.Task, args: argparse.Namespace) -> model.Closeout:
     """Собрать closeout из флагов одного вызова; пустые значения — отказ."""
     outcome = (args.outcome or "").strip()
@@ -66,20 +78,13 @@ def _closeout(layout: Layout, task: model.Task, args: argparse.Namespace) -> mod
         for value in values:
             if not value.strip():
                 raise ValueError(f"closeout: empty value in --{name[:-1]}")
-    evidence: dict[str, str] = {}
-    if task.shard:
-        evidence["shard"] = task.shard
-        evidence["result"] = acceptance_state(layout, task.shard)
-    commit = _git_commit(layout)
-    if commit:
-        evidence["commit"] = commit
     return model.Closeout(
         outcome=outcome,
         decisions=[value.strip() for value in lists["decisions"]],
         followups=[value.strip() for value in lists["followups"]],
         files=[value.strip() for value in lists["files"]],
         tests=[value.strip() for value in lists["tests"]],
-        evidence=evidence,
+        evidence=_evidence(layout, task),
     )
 
 
@@ -192,6 +197,12 @@ def main(argv: list[str] | None = None) -> int:
                       help="closeout: changed files (repeatable)")
     edit.add_argument("--tests", action="append", default=[],
                       help="closeout: acceptance commands or results (repeatable)")
+    edit.add_argument("--refresh-evidence", action="store_true",
+                      help="recompute evidence {shard, result, head_at_close} of an existing closeout")
+    edit.add_argument("--ac-text", action="append", nargs=2, default=[], metavar=("N", "TEXT"),
+                      help="replace the text of criterion N, keeping its checked state")
+    edit.add_argument("--ac-replace", action="append", nargs=2, default=[], metavar=("OLD", "NEW"),
+                      help="substring replacement across all criteria (repeatable)")
     edit.add_argument("--force", action="store_true",
                       help="allow Done without a closeout or with unchecked criteria")
 
@@ -284,6 +295,7 @@ def main(argv: list[str] | None = None) -> int:
                             {"done": done, "text": text} for done, text in task.acceptance
                         ],
                         "notes": task.notes,
+                        "notes_text": task.notes_body or None,
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -329,6 +341,29 @@ def main(argv: list[str] | None = None) -> int:
             task.dependencies.append(dependency)
     for note in args.note:
         task.notes.append(note)
+    for number, text in args.ac_text:
+        if not text.strip():
+            print("refused: --ac-text needs non-empty text")
+            return 1
+        try:
+            index = int(number)
+        except ValueError:
+            print(f"refused: --ac-text {number!r}: not a number")
+            return 1
+        if not 1 <= index <= len(task.acceptance):
+            print(f"refused: acceptance criterion #{index} does not exist")
+            return 1
+        checked = task.acceptance[index - 1][0]
+        task.acceptance[index - 1] = (checked, text.strip())
+    replaced = 0
+    for old, new in args.ac_replace:
+        if not old.strip():
+            print("refused: --ac-replace needs a non-empty search string")
+            return 1
+        for position, (checked, text) in enumerate(task.acceptance):
+            if old in text:
+                replaced += text.count(old)
+                task.acceptance[position] = (checked, text.replace(old, new))
     check_indices = _indices(args.check_ac)
     uncheck_indices = _indices(args.uncheck_ac)
     for index in check_indices:
@@ -367,6 +402,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         task.closed = _now()
+    if args.refresh_evidence:
+        if task.closeout is None:
+            print(f"refused: {task.id} has no closeout to refresh")
+            return 1
+        task.closeout.evidence = _evidence(layout, task)
     try:
         path = model.save(task, tasks)
     except ValueError as error:
@@ -377,6 +417,8 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         shown = str(path)
     print(f"{task.id} saved ({task.status}) → {shown}")
+    if args.ac_replace:
+        print(f"{task.id}: replaced {replaced} occurrence(s)")
     return 0
 
 

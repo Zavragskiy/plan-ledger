@@ -104,6 +104,19 @@ def clear_cache() -> None:
     _BATCH.clear()
 
 
+def _db_files(path: pathlib.Path) -> list[pathlib.Path]:
+    candidates = [path]
+    try:
+        candidates.extend(path.parent.glob(path.name + "*"))
+    except OSError:  # pragma: no cover - нечитаемый каталог состояния
+        pass
+    return candidates
+
+
+def _db_present(path: pathlib.Path) -> bool:
+    return any(candidate.exists() for candidate in _db_files(path))
+
+
 def _db_stamp(path: pathlib.Path) -> int:
     """Версия БД: правка doit-базы (plan-run) сбрасывает кэш этого шарда.
 
@@ -112,12 +125,7 @@ def _db_stamp(path: pathlib.Path) -> int:
     артефактам ``<db>*``; отсутствие БД — версия 0.
     """
     stamp = 0
-    candidates = [path]
-    try:
-        candidates.extend(path.parent.glob(path.name + "*"))
-    except OSError:  # pragma: no cover - нечитаемый каталог состояния
-        pass
-    for candidate in candidates:
+    for candidate in _db_files(path):
         try:
             stamp = max(stamp, candidate.stat().st_mtime_ns)
         except OSError:
@@ -211,6 +219,13 @@ def _acceptance_status(layout: Layout, shard: str) -> tuple[str, str]:
         return "error", missing
     changed = _listed(CHANGED, output, layout.root, "changed")
     if changed is not None:
+        if not _db_present(layout.db):
+            # БД нет вовсе: «файлы изменились» — ложный диагноз, приёмки просто
+            # не было в этом окружении (свежий clone, CI без прогона).
+            return "run", (
+                f"no acceptance in this environment: {shard} has no doit database "
+                f"(run `plan-run {shard}`)"
+            )
         return "run", changed
     where = _relative(layout.root, str(layout.dodo))
     if re.search(r"Unknown task|Task not found|Invalid parameter", output, re.I):

@@ -88,6 +88,9 @@ class Closeout:
                 for key, value in raw_evidence.items()
                 if value is not None
             }
+            # 0.5.0 писал ``commit``; это HEAD на момент закрытия, не коммит изменения.
+            if "commit" in evidence and "head_at_close" not in evidence:
+                evidence["head_at_close"] = evidence.pop("commit")
         return cls(
             outcome=str(raw.get("outcome") or "").strip(),
             decisions=strings("decisions"),
@@ -116,6 +119,7 @@ class Task:
     description: str = ""
     plan: str = ""
     notes: list[str] = field(default_factory=list)
+    notes_body: str = ""
     acceptance: list[tuple[bool, str]] = field(default_factory=list)
     extra_sections: list[tuple[str, str]] = field(default_factory=list)
 
@@ -185,8 +189,13 @@ class Task:
                 for number, (done, text) in enumerate(self.acceptance, 1)
             ]
             parts.append("## Acceptance Criteria\n\n" + "\n".join(lines) + "\n")
-        if self.notes:
-            parts.append("## Notes\n\n" + "\n".join(f"- {note}" for note in self.notes) + "\n")
+        if self.notes_body or self.notes:
+            chunks: list[str] = []
+            if self.notes_body:
+                chunks.append(self.notes_body.rstrip())
+            if self.notes:
+                chunks.append("\n".join(f"- {note}" for note in self.notes))
+            parts.append("## Notes\n\n" + "\n\n".join(chunks) + "\n")
         for title, chunk in self.extra_sections:
             parts.append(f"## {title}\n\n{chunk.strip()}\n")
         return "\n".join(parts)
@@ -237,7 +246,7 @@ def parse(path: pathlib.Path) -> Task:
         raise ValueError(f"{path}: no YAML frontmatter")
     meta = yaml.safe_load(match.group(1)) or {}
     body = HTML_COMMENT.sub("", text[match.end() :])
-    description, plan, notes = "", "", []
+    description, plan, notes, notes_body = "", "", [], ""
     acceptance: list[tuple[bool, str]] = []
     extra: list[tuple[str, str]] = []
     headers = list(SECTION.finditer(body))
@@ -252,7 +261,9 @@ def parse(path: pathlib.Path) -> Task:
         elif name == "acceptance criteria":
             acceptance = [(flag.lower() == "x", text.strip()) for flag, text in AC_ITEM.findall(chunk)]
         elif name in {"notes", "implementation notes"}:
-            notes = [line.lstrip("-* ").strip() for line in chunk.splitlines() if line.strip()]
+            # Тело секции сохраняется как есть: рукописные абзацы, списки и
+            # пустые строки не нормализуются. `--note` добавляет буллеты.
+            notes_body = chunk.strip("\n")
         else:
             extra.append((header.group(1).strip(), chunk))
     return Task(
@@ -272,6 +283,7 @@ def parse(path: pathlib.Path) -> Task:
         description=description,
         plan=plan,
         notes=notes,
+        notes_body=notes_body,
         acceptance=acceptance,
         extra_sections=extra,
     )

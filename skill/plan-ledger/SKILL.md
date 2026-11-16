@@ -52,9 +52,15 @@ plan-task set TASK-3 --status Done --check-ac 1,2,3 `
 `incomplete`.
 
 `Done` требует `--outcome` в том же вызове: конверт `outcome/decisions/followups/files/tests` и
-`evidence {shard, result, commit}` пишется один раз, `closed_date` фиксируется на переходе.
+`evidence {shard, result, head_at_close}` пишется один раз, `closed_date` фиксируется на переходе.
 Повторное подтверждение `Done` **заменяет** блок, а не дописывает. `--force` записывает Done без
 closeout — гейт покажет `no-closeout` (не блокирует без `--strict`).
+
+`head_at_close` — это HEAD **на момент закрытия**, то есть родитель коммита с closeout; чтобы
+обновить указатель после коммита, есть `plan-task set TASK-3 --refresh-evidence`.
+
+`## Notes` сохраняется дословно: абзацы, `**выделение**` и пустые строки переживают правку задачи,
+а `--note` дописывает буллет в конец секции.
 
 `plan-run` — единственный правильный способ прогнать приёмку: он передаёт те же
 `-f/-d/--db-file`, что и `plan-check`. Ручной `doit` без `--db-file` положит БД в корень кода и
